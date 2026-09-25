@@ -1,1 +1,0 @@
-{"agentType":"nugget-scout-api","description":"Find undocumented nuggets in ardoq-api","name":"nugget-scout-api","spawnDepth":0,"requestShape":"background","requestNonInteractive":true,"model":"sonnet","taskKind":"in_process_teammate","teamName":"session-5950c62e","color":"blue","planModeRequired":false,"customAgentType":"investigator","permissionMode":"auto"}

@@ -1,1 +1,0 @@
-{"agentType":"sparql-verifier","description":"Verify SPARQL output correctness","name":"sparql-verifier","spawnDepth":0,"model":"opus[1m]","taskKind":"in_process_teammate","teamName":"session-eae651e0","color":"blue","planModeRequired":false,"permissionMode":"auto"}

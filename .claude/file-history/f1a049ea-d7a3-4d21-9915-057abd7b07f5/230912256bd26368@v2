@@ -1,6 +1,0 @@
-# Local only. Recreates graphlake-sync's JetStream consumers on every start, forcing a
-# full reload of each store so main always uses the running sync's RDF mapping.
-services:
-  graphlake-sync:
-    environment:
-      GL_SYNC_JETSTREAM_RESET_CONSUMERS: "true"
