@@ -1,0 +1,43 @@
+"""Project-wide paths and model configuration for the pipeline."""
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
+
+
+class Paths:
+    # Source DL
+    dl              = PROJECT_ROOT / "data" / "dl"
+    foundation_core = dl / "foundation-core.dle"
+
+    # Inference outputs
+    dl_inferred     = PROJECT_ROOT / "data" / "dl-inferred"   # pass 1
+    dl_extended     = PROJECT_ROOT / "data" / "dl-extended"   # pass 2
+
+    # Individual query outputs
+    flagged_queries  = PROJECT_ROOT / "data" / "flagged-queries"   # from dl-inferred
+    flagged_extended = PROJECT_ROOT / "data" / "flagged-extended"  # from dl-extended
+
+    # Report (merged) query outputs
+    report_queries  = PROJECT_ROOT / "data" / "report-queries"    # from dl-inferred
+    report_extended = PROJECT_ROOT / "data" / "report-extended"   # from dl-extended
+
+    # Individual SPARQL query outputs
+    flagged_queries_sparql  = PROJECT_ROOT / "data" / "flagged-queries-sparql"     # from dl-inferred
+    flagged_extended_sparql = PROJECT_ROOT / "data" / "flagged-extended-sparql"    # from dl-extended
+
+    # SPARQL report (merged) query outputs
+    report_queries_sparql         = PROJECT_ROOT / "data" / "report-queries-sparql"   # from dl-inferred
+    report_extended_sparql = PROJECT_ROOT / "data" / "report-extended-sparql"  # from dl-extended
+
+    # Prompts directory (sibling to this file)
+    prompts = Path(__file__).resolve().parent / "prompts"
+
+
+class Models:
+    # Most capable model: used for DL inference where quality matters most
+    inference = "claude-opus-4-6"
+    # Sufficient for structured query generation
+    query_gen = "claude-sonnet-4-6"

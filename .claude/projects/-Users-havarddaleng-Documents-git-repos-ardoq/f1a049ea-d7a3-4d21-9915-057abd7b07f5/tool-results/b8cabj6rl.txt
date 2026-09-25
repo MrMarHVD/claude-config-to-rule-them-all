@@ -1,0 +1,1582 @@
+     1	# Model Mapping
+     2	
+     3	This document describes the way data is mapped from an ardoq postgresql database into RDF in graphlale. It covers the metamodel, model constructs and instances. Metamodel aligns with the RDF world, e.g. the concepts of Class and Statement, model constructs to mean instances of owl:Class / ComponentType in Ardoq e.g. Person and instances (named individuals), e.g. a specific Person. 
+     4	
+     5	## Rationale
+     6	
+     7	In defining this mapping between Ardoq and RDF we have been guided by the following needs and principles.
+     8	
+     9	+ Support for common query patterns
+    10	+ Symmetry and modelling approach for ComponentTypes, ReferenceTypes and FieldTypes
+    11	+ Simplicity in the patterns for generating
+    12	+ Not requiring inference for basic query operations 
+    13	
+    14	A full set of query examples can be found further in the document.
+    15	
+    16	## Identity Rules
+    17	
+    18	A key part of keeping data in sync, or in general from syncing from another source is that identifiers are unique, they have clear construction rules and non-ambiguous binding back to the original data item in the source system.
+    19	
+    20	The following patterns show how identifiers for the different kinds of things are constructed.
+    21	
+    22	```text
+    23	Component instance:
+    24	  http://data.ardoq.com/instances/components/<component._id>
+    25	
+    26	References instance:
+    27	  http://data.ardoq.com/instances/references/<reference._id>
+    28	
+    29	Concrete component type class:
+    30	  http://data.ardoq.com/model/component-types/<component_type._id>
+    31	
+    32	Common component name class:
+    33	  http://data.ardoq.com/model/component-types/<uuidv5("http://data.ardoq.com/model/component-types/name:" + component_type.name)>
+    34	
+    35	Concrete reference type property:
+    36	  http://data.ardoq.com/model/reference-types/<reference_type._id>
+    37	
+    38	Common reference name property:
+    39	  http://data.ardoq.com/model/reference-types/<uuidv5("http://data.ardoq.com/model/reference-types/name:" + reference_type.name)>
+    40	
+    41	Global field property:
+    42	  http://data.ardoq.com/model/field-types/<global_field._id>
+    43	
+    44	Model field (a field's placement in one model):
+    45	  http://data.ardoq.com/model/model-fields/<field_id_by_model._id>
+    46	
+    47	Built-in common property:
+    48	  http://data.ardoq.com/model/common/<field-name>
+    49	
+    50	SHACL shape:
+    51	  http://data.ardoq.com/model/shapes/<deterministic-shape-guid>
+    52	
+    53	Workspace instance:
+    54	  http://data.ardoq.com/instances/workspaces/<workspace._id>
+    55	
+    56	Tag instance:
+    57	  http://data.ardoq.com/instances/tags/<tag._id>
+    58	
+    59	User instance:
+    60	  http://data.ardoq.com/instances/users/<user_account._id>
+    61	```
+    62	
+    63	The common component and reference resources are name-level resources. They are created for consistency even when there is only one concrete type with that name.
+    64	
+    65	Example exact UUIDv5 values used below:
+    66	
+    67	```text
+    68	Common component class for "Application":
+    69	  http://data.ardoq.com/model/component-types/a0a27382-298e-574f-a571-dea6ea4cd2ca
+    70	
+    71	Common component class for "Server":
+    72	  http://data.ardoq.com/model/component-types/260b81a3-9c29-57e1-87a4-90a77eb453c8
+    73	
+    74	Common reference property for "deployed on":
+    75	  http://data.ardoq.com/model/reference-types/fd3203a9-9f55-5d50-a1fc-ffc4d1162da3
+    76	```
+    77	
+    78	
+    79	## Vocabulary
+    80	
+    81	The syncer emits RDF/RDFS/OWL/SHACL resources. Below is a list of these for reference:
+    82	
+    83	```text
+    84	rdf:type             http://www.w3.org/1999/02/22-rdf-syntax-ns#type
+    85	rdfs:label           http://www.w3.org/2000/01/rdf-schema#label
+    86	rdfs:comment         http://www.w3.org/2000/01/rdf-schema#comment
+    87	rdfs:subClassOf      http://www.w3.org/2000/01/rdf-schema#subClassOf
+    88	rdfs:subPropertyOf   http://www.w3.org/2000/01/rdf-schema#subPropertyOf
+    89	rdfs:domain          http://www.w3.org/2000/01/rdf-schema#domain
+    90	rdfs:range           http://www.w3.org/2000/01/rdf-schema#range
+    91	owl:Class            http://www.w3.org/2002/07/owl#Class
+    92	owl:DatatypeProperty http://www.w3.org/2002/07/owl#DatatypeProperty
+    93	owl:ObjectProperty   http://www.w3.org/2002/07/owl#ObjectProperty
+    94	sh:NodeShape         http://www.w3.org/ns/shacl#NodeShape
+    95	sh:PropertyShape     http://www.w3.org/ns/shacl#PropertyShape
+    96	sh:targetClass       http://www.w3.org/ns/shacl#targetClass
+    97	sh:property          http://www.w3.org/ns/shacl#property
+    98	sh:path              http://www.w3.org/ns/shacl#path
+    99	sh:datatype          http://www.w3.org/ns/shacl#datatype
+   100	sh:class             http://www.w3.org/ns/shacl#class
+   101	xsd:string           http://www.w3.org/2001/XMLSchema#string
+   102	xsd:decimal          http://www.w3.org/2001/XMLSchema#decimal
+   103	xsd:integer          http://www.w3.org/2001/XMLSchema#integer
+   104	xsd:boolean          http://www.w3.org/2001/XMLSchema#boolean
+   105	xsd:dateTime         http://www.w3.org/2001/XMLSchema#dateTime
+   106	xsd:date             http://www.w3.org/2001/XMLSchema#date
+   107	xsd:anyURI           http://www.w3.org/2001/XMLSchema#anyURI
+   108	```
+   109	
+   110	One datatype is GraphLake's rather than the W3C's, for a pair of dates or
+   111	dateTimes carried as one ISO 8601 interval. Its two accessors sit under a
+   112	separate namespace:
+   113	
+   114	```text
+   115	glType:iso8601-date-interval  http://graphlake.net/types/iso8601-date-interval
+   116	gl:intervalStart              http://graphlake.net/functions/intervalStart
+   117	gl:intervalEnd                http://graphlake.net/functions/intervalEnd
+   118	```
+   119	
+   120	### Prefixes
+   121	
+   122	The Turtle examples in the rest of this document are written against the following prefixes. The prefix block itself is omitted from each example to keep them short:
+   123	
+   124	```turtle
+   125	@prefix rdf:            <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+   126	@prefix rdfs:           <http://www.w3.org/2000/01/rdf-schema#> .
+   127	@prefix owl:            <http://www.w3.org/2002/07/owl#> .
+   128	@prefix sh:             <http://www.w3.org/ns/shacl#> .
+   129	@prefix xsd:            <http://www.w3.org/2001/XMLSchema#> .
+   130	@prefix aqModel:        <http://data.ardoq.com/meta-model/> .
+   131	@prefix aqCommon:       <http://data.ardoq.com/model/common/> .
+   132	@prefix aqCompType:     <http://data.ardoq.com/model/component-types/> .
+   133	@prefix aqRefType:      <http://data.ardoq.com/model/reference-types/> .
+   134	@prefix aqFieldType:    <http://data.ardoq.com/model/field-types/> .
+   135	@prefix aqModelField:   <http://data.ardoq.com/model/model-fields/> .
+   136	@prefix aqShape:        <http://data.ardoq.com/model/shapes/> .
+   137	@prefix aqComponent:    <http://data.ardoq.com/instances/components/> .
+   138	@prefix aqRefStatement: <http://data.ardoq.com/instances/references/> .
+   139	@prefix aqTag:          <http://data.ardoq.com/model/tags/> .
+   140	@prefix aqWorkspace:    <http://data.ardoq.com/instances/workspaces/> .
+   141	@prefix aqUser:         <http://data.ardoq.com/instances/users/> .
+   142	@prefix glType:         <http://graphlake.net/types/> .
+   143	@prefix gl:             <http://graphlake.net/functions/> .
+   144	```
+   145	
+   146	When we are generating SHACL shapes the IRIs used are deterministic:
+   147	
+   148	```text
+   149	Node shape:
+   150	  uuidv5(URL, "http://data.ardoq.com/model/shapes/node:" + targetClassIRI)
+   151	
+   152	Data property shape:
+   153	  uuidv5(URL, "http://data.ardoq.com/model/shapes/data-property:" + propertyIRI)
+   154	
+   155	Object property shape:
+   156	  uuidv5(URL, "http://data.ardoq.com/model/shapes/object-property:" + sourceClassIRI + "\x00" + propertyIRI + "\x00" + targetClassIRI)
+   157	```
+   158	
+   159	
+   160	## Meta Model
+   161	
+   162	The Meta Model represents the core constructs that can be used to construct a model (a set of classes and property classes). In Ardoq terms ComponentType, ReferenceType and in RDFS terms these align to Class and Property.
+   163	
+   164	```text
+   165	@prefix rdf:             <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+   166	@prefix rdfs:            <http://www.w3.org/2000/01/rdf-schema#> .
+   167	@prefix owl:             <http://www.w3.org/2002/07/owl#> .
+   168	@prefix aq:              <http://data.ardoq.com/meta-model/> .
+   169	
+   170	# Used to indicate which classes are sourced from Ardoq Component Types
+   171	aq:ComponentType a owl:Class .
+   172	
+   173	# Used to indicate which property classes are sourced from Ardoq Reference Types
+   174	aq:ReferenceType a owl:Class .
+   175	
+   176	# The type of all Ardoq components. The common super class of all ardoq defined Component Types. 
+   177	aq:Component a owl:Class .
+   178	
+   179	# The type of all Ardoq references and hence all RDF reifiers. The common super class of all ardoq defined Reference Types. 
+   180	aq:Reference a owl:Class, owl:ObjectProperty .
+   181	
+   182	# Used to indicate all property classes that are fields defined in ardoq, both buit in and user defined.
+   183	aq:FieldType a owl:Class .
+   184	
+   185	aq:CustomFieldType a owl:Class ;
+   186	  rdfs:subClassOf aq:FieldType .
+   187	
+   188	aq:BuiltInFieldType a owl:Class ;
+   189	  rdfs:subClassOf aq:FieldType .
+   190	
+   191	# The type of all Ardoq fields and hence any RDF reifiers of those statements. The common super class of all ardoq defined Field Types.
+   192	aq:Field a owl:Class, owl:DatatypeProperty .
+   193	
+   194	# A field as it appears in one model: which model it belongs to, and where it sits
+   195	# in that model's field list. See the Model Fields section for why this is a
+   196	# resource rather than two more predicates on the field type.
+   197	aq:ModelField a owl:Class .
+   198	```
+   199	
+   200	## Example
+   201	
+   202	```text
+   203	Verified to be EL/QL/RL/DL valid:
+   204	
+   205	@prefix rdf:             <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+   206	@prefix rdfs:            <http://www.w3.org/2000/01/rdf-schema#> .
+   207	@prefix owl:             <http://www.w3.org/2002/07/owl#> .
+   208	@prefix aq:              <http://data.ardoq.com/meta-model/> .
+   209	@prefix aqCommon:        <http://data.ardoq.com/model/common/> .
+   210	@prefix aqComponent:     <http://data.ardoq.com/instances/components/> .
+   211	@prefix aqReference:     <http://data.ardoq.com/instances/references/> .
+   212	@prefix aqComponentType: <http://data.ardoq.com/model/component-types/> .
+   213	@prefix aqReferenceType: <http://data.ardoq.com/model/reference-types/> .
+   214	
+   215	### Meta Model
+   216	aq:ComponentType a owl:Class .
+   217	aq:ReferenceType a owl:Class .
+   218	aq:Component a owl:Class .
+   219	aq:Reference a owl:Class, owl:ObjectProperty .
+   220	aq:FieldType a owl:Class .
+   221	aq:CustomFieldType a owl:Class ;
+   222	  rdfs:subClassOf aq:FieldType .
+   223	aq:BuiltInFieldType a owl:Class ;
+   224	  rdfs:subClassOf aq:FieldType .
+   225	aq:Field a owl:Class, owl:DatatypeProperty .
+   226	aq:ModelField a owl:Class .
+   227	
+   228	### Built In Model Constructs
+   229	
+   230	aqCommon:id a aq:BuiltInFieldType, owl:Class, owl:DatatypeProperty ;
+   231	  rdfs:subClassOf aq:Field ;
+   232	  rdfs:subPropertyOf aq:Field .
+   233	
+   234	# aqCommon:name, created, description, createdBy, all follow the same pattern.
+   235	# These are all pulled from the component and reference table in Ardoq
+   236	
+   237	### Examples
+   238	
+   239	# This is an example of a Ardoq defined component type.
+   240	# For _reasons_ it's split across a global and a workspace local type.
+   241	# It is itself a component type of course, but it's also a subclass of
+   242	# aq:Component, such that all instances of this type are also instances of aq:Component.
+   243	aqComponentType:global001 a aq:ComponentType, owl:Class ;
+   244	  rdfs:subClassOf aq:Component .
+   245	
+   246	# The local type is a subclass of the global type, so that any instance
+   247	# are also instances of the global type.
+   248	aqComponentType:local001 a aq:ComponentType, owl:Class ;
+   249	  rdfs:subClassOf aqComponentType:global001 .
+   250	
+   251	# Example of a user-defined component.
+   252	aqComponent:001 a aqComponentType:local001 ;
+   253	  aqCommon:id "001" .
+   254	
+   255	## References
+   256	
+   257	# Example of a user-defined reference type. Same as for component types, it's
+   258	# split into local and global. It's both a class and a property, because it
+   259	# will be used as predicate for the reified triple, and type for the reifier.
+   260	# It's also both a subclass and subproperty of aq:Reference, so that
+   261	# instances and triples get the relevant supertype and superproperty inferred.
+   262	aqReferenceType:global001 a aq:ReferenceType, owl:ObjectProperty, owl:Class ;
+   263	  rdfs:subClassOf aq:Reference ;
+   264	  rdfs:subPropertyOf aq:Reference .
+   265	
+   266	aqReferenceType:local001 a aq:ReferenceType, owl:ObjectProperty, owl:Class ;
+   267	  rdfs:subClassOf aqReferenceType:global001 ;
+   268	  rdfs:subPropertyOf aqReferenceType:global001 .
+   269	
+   270	# Here's an example of a reference. The reference entity is the reifier, but
+   271	# the triple it reifies is necessary to be able to traverse the graph.
+   272	aqComponent:001 aqReferenceType:local001 aqComponent:001 ~ aqReference:001 {|
+   273	  a aqReferenceType:local001 ;
+   274	  aqCommon:id "001"
+   275	|} .
+   276	
+   277	# With this, we should have inferred triples like:
+   278	#   aqComponent:001 aq:Reference aqComponent:001
+   279	#   aqReference:001 a aq:Reference
+   280	#   aqComponent:001 a aq:Component
+   281	# These can all be inferred by RDFS reasoning, but we have taken care to ensure
+   282	# the model is also OWL 2 EL/QL/RL/DL compliant, so more advanced reasoning can
+   283	# be applied if needed
+   284	```
+   285	
+   286	## Users
+   287	
+   288	A user is the author of a row: `common/createdBy` and `common/lastModifiedBy` are
+   289	`owl:ObjectProperty` edges to a `common/User`, not string literals.
+   290	
+   291	The edit pair is named asymmetrically: the time is `common/lastUpdated` and the
+   292	user is `common/lastModifiedBy`, which is how the rest of the platform names
+   293	them and what the source columns are called. Advanced search filters the user
+   294	under "last modified by", so a predicate named after the timestamp would match
+   295	nothing and the endpoint would answer zero rows with an HTTP 200.
+   296	
+   297	```text
+   298	
+   299	# User class:
+   300	  http://data.ardoq.com/model/common/User
+   301	
+   302	# User instance:
+   303	  http://data.ardoq.com/instances/users/<user_account._id>
+   304	
+   305	# Properties:
+   306	  http://data.ardoq.com/model/common/id      user_account._id
+   307	  http://data.ardoq.com/model/common/name    user_account.name
+   308	
+   309	# Edges to it, from a component, a reference reifier or a workspace:
+   310	  http://data.ardoq.com/model/common/createdBy
+   311	  http://data.ardoq.com/model/common/lastModifiedBy
+   312	
+   313	```
+   314	
+   315	**The users come from `public.user_account` in the Ardoq settings database**, the
+   316	one `GL_SYNC_ARDOQ_DB_URI` points at. An Ardoq org schema has no `user` table: its
+   317	audit columns carry a bare `user_account._id` and nothing else, so the display name
+   318	a person searches by is reachable only from there. The name is the reason to write
+   319	the resource at all — a User carrying only its id told a query nothing the
+   320	`createdBy` edge had not already said.
+   321	
+   322	Which rows of that table is the whole of the design, because the settings database
+   323	is shared by every organisation on an installation. Two things scope it, and both
+   324	are needed:
+   325	
+   326	- **The organisation's people** — `organization.members` and
+   327	  `organization.contributors`, jsonb objects keyed by `user_account._id`. This is
+   328	  what puts a person in the graph before they have touched anything.
+   329	- **The organisation's authors** — every id in an audit column of its schema,
+   330	  member or not. Without this an author who has left would resolve to nothing and
+   331	  their `createdBy` edges would point at an IRI carrying no triples, which the SHACL
+   332	  shape declaring `createdBy`'s range to be `User` makes a violation rather than
+   333	  merely a gap. Advanced search resolves an author the same way: a join to the users
+   334	  table with no membership filter.
+   335	
+   336	Neither half reaches outside the organisation: one is its own row, the other its own
+   337	data.
+   338	
+   339	**An author id with no row still gets its resource**, carrying the id and no name.
+   340	Only a hard-deleted account gets there — `user_account` has a delete trigger, and
+   341	deleting the row does not clear the id out of the audit columns of everything that
+   342	person touched, so those ids outlive the row for ever. The resource is written
+   343	anyway because the `createdBy` edge pointing at it already exists, and the SHACL
+   344	shape for `createdBy` declares its range to be `User`: an edge into an IRI carrying
+   345	no triples is a violation on every row that person authored, which is strictly worse
+   346	than a resource with no name. The last known name is still in
+   347	`user_account__history`, but the syncer's Postgres role has no grant on that
+   348	table.
+   349	
+   350	One consequence worth knowing: a deleted account and a live user whose `name` is
+   351	null produce exactly the same two triples, so the graph cannot tell them apart.
+   352	
+   353	`user_account.name` is nullable, so a user without one gets no `common/name` triple
+   354	rather than an empty literal. Nothing else on the row is read — it also holds an
+   355	email address, a password hash and SAML/SCIM identifiers, none of which belong in a
+   356	graph store.
+   357	
+   358	A user is written once per target rather than once per row, for the same reason the
+   359	model-level triples are: both bulk paths send `X-GraphLake-Skip-Duplicate-Check`, so
+   360	a resource re-asserted per component would be *stored* per component. There is no
+   361	update or delete mapping for one — a full sync rewrites the directory, and the
+   362	streaming path re-asserts an author when it sees one of their rows.
+   363	
+   364	The id is percent-escaped when minting the IRI. Unlike a component or reference id
+   365	it is minted from an audit column as often as from the user row, and nothing
+   366	validates an audit column, so one stray space would otherwise produce a malformed
+   367	IRI and fail the whole update.
+   368	
+   369	Example source rows:
+   370	
+   371	```text
+   372	user_account._id          u-ada
+   373	user_account.name         Ada Lovelace
+   374	
+   375	component._id             app-001
+   376	component.createdBy       u-ada
+   377	component.lastModifiedBy  u-grace
+   378	```
+   379	
+   380	Example triples:
+   381	
+   382	```turtle
+   383	aqUser:u-ada a aqCommon:User ;
+   384	  aqCommon:id   "u-ada" ;
+   385	  aqCommon:name "Ada Lovelace" .
+   386	
+   387	aqComponent:app-001
+   388	  aqCommon:createdBy      aqUser:u-ada ;
+   389	  aqCommon:lastModifiedBy aqUser:u-grace .
+   390	```
+   391	
+   392	Both edges are cleared by `del_component_metadata` and `del_reference_metadata`,
+   393	alongside `rdf:type`, `common/parent` and `common/workspace`, because
+   394	`del_all_about` removes only literal-object triples: a row that changed hands would
+   395	otherwise name both authors.
+   396	
+   397	Being object-valued has one model-level consequence. `common/createdBy` and
+   398	`common/lastModifiedBy` are no longer `aq:BuiltInFieldType` and no longer sit under
+   399	`aq:Field`. `aq:Field` is an `owl:DatatypeProperty`, and OWL 2 DL requires object
+   400	and data properties to be disjoint, so an object-valued built-in cannot be a
+   401	sub-property of it — the same reason `common/parent` and `common/workspace` are not.
+   402	Their SHACL shapes are `sh:class common/User` rather than `sh:datatype xsd:string`.
+   403	
+   404	`global_field.type = 'User'` values are still `xsd:string`. They are user ids too
+   405	and should become edges to these same resources; that is not mapped yet.
+   406	
+   407	### Emitting a user exactly once
+   408	
+   409	The resources are emitted **once per target**, never per row. Both bulk paths send
+   410	`X-GraphLake-Skip-Duplicate-Check`, which turns off GraphLake's duplicate check, so
+   411	a type triple asserted once per component would be *stored* once per component: on
+   412	this repo's dev org that is 33,716 copies of one triple for a single user. Each
+   413	path uses its own mechanism:
+   414	
+   415	```text
+   416	full sync         one directory read, before components, per target (main and each
+   417	                  branch, since each commits by MOVEing its own graph over the
+   418	                  target's live graph). The author half of its scope is a `select
+   419	                  distinct` over the audit columns of the live tables
+   420	history backfill  the same, with the author pass reading the history mirrors as
+   421	                  well. Recorded once before the first month as one `user:<id>`
+   422	                  entity in the carried state, and written nowhere else: a month's
+   423	                  snapshot is materialised from that state, and the backfill does
+   424	                  not touch the head
+   425	CDC streaming     per row, resolving each author against the settings database
+   426	                  through a cache that holds misses as well as hits. This is the
+   427	                  only path that can add a user between full syncs: the CDC stream
+   428	                  carries the org schema, and the directory is elsewhere. It does
+   429	                  not skip the duplicate check, so the store collapses the repeats
+   430	```
+   431	
+   432	The two author passes differ deliberately. A full sync writes live state, so a
+   433	live-only pass is right. Replay materialises entities that have since been deleted —
+   434	a component removed last year is written into every month before its deletion — and
+   435	its author may appear in no live row, so a live-only pass there would leave that
+   436	component's `createdBy` edge pointing at an untyped IRI.
+   437	
+   438	A replayed snapshot carries today's names, not the names the organisation's people
+   439	had in that month. `user_account` is a live table with no per-month view, and the
+   440	membership maps have none either.
+   441	
+   442	Duplicate stored triples are invisible to SPARQL — GraphLake filters duplicates on
+   443	read — so this is a write-amplification and storage concern, not a correctness one,
+   444	and no query can detect a regression. The guard is
+   445	`TestBulkPathNeverTypesAUserPerRow`, which asserts on the op stream instead.
+   446	
+   447	### Emitting a shared model resource exactly once
+   448	
+   449	The same problem applies to every model-level resource more than one row reaches,
+   450	and for the same reason: the builders assert them from each row so a single CDC
+   451	change event stands alone. On the bulk paths those repeats are stored.
+   452	
+   453	```text
+   454	common reference-type triples   asserted by every reference_type row of that name
+   455	name-level component class      asserted by every component_type row of that name
+   456	concrete type node shape        asserted by the type, and again by every field
+   457	                                attached to it and every org_triple that targets it
+   458	```
+   459	
+   460	**All three paths** filter their ops through `assertedModelTriples`, which drops the
+   461	second and later assertion of any triple whose subject can be reached from more than
+   462	one row. Two kinds can: anything under `http://data.ardoq.com/model/`, and a User,
+   463	which is the one individual with no row of its own.
+   464	
+   465	Every other instance subject is deliberately excluded. A component, reference, tag
+   466	or workspace subject is asserted by exactly one row, so there is nothing to collapse
+   467	— and remembering them would grow the set with row count instead of with model size,
+   468	which is the whole point. What is held is bounded by the model plus the number of
+   469	distinct authors.
+   470	
+   471	The three pattern deletes (`del_all_about`, `del_component_metadata`,
+   472	`del_reference_metadata`) are always scoped to an instance subject, so they can
+   473	never remove a remembered triple behind the filter's back.
+   474	
+   475	Lifetimes differ by path, because what invalidates the record differs:
+   476	
+   477	```text
+   478	full sync      one record per target, held for the run and discarded with it, so an
+   479	               aborted sync cannot leave a claim about a graph that was thrown away
+   480	history backfill  one record per staged month, because a month is staged whole:
+   481	               the walk of the carried state repeats the shared model triples once
+   482	               per entity that references them, and the record collapses those
+   483	streaming      per target, held for the process. Committed only after the write
+   484	               lands, so a naked message's redelivery re-asserts what never arrived
+   485	```
+   486	
+   487	The streaming path is the one where this recurs rather than happening once: every
+   488	change event carries the shared triples, so before filtering a 25-event run sent 49
+   489	duplicates in 253 add-ops. The standing measurements are
+   490	`TestStreamingSendsNoDuplicateTriples` and
+   491	`TestBulkModelPassesSendNoDuplicateTriples`, which fail with a count. The full sync
+   492	also logs `model_triples` and `duplicate_model_ops_collapsed` per schema.
+   493	
+   494	One duplicate is left, and is intrinsic. N references between the same pair with the
+   495	same type are N reifiers over one plain edge, and each asserts that edge. It is
+   496	genuinely shared: GraphLake removes it when the last reifier goes, and does so by an
+   497	existence check on `rdf:reifies` rather than by a reference count
+   498	(`core.collectReifierOrphans`), so nothing needs to know how many asserted it.
+   499	
+   500	What that costs differs by path, because the store's duplicate check is on in one and
+   501	off in the others:
+   502	
+   503	```text
+   504	streaming         the edge is sent N times and stored once (check on)
+   505	full sync         sent N times and stored N times (check off)
+   506	history backfill  staged once per month: the carried state holds one copy of the
+   507	                  edge, and the walk that materialises the month collapses the
+   508	                  repeats before staging
+   509	```
+   510	
+   511	Collapsing it would mean remembering instance triples, whose count scales with rows
+   512	rather than with parallel edges — see `isSharedSubject`. It is pinned instead, with
+   513	its exact count, by `TestParallelReferencesShareOnePlainEdge`: if anything else began
+   514	repeating, that count would rise and the test fails.
+   515	
+   516	Every other path is audited to zero, per path rather than in aggregate:
+   517	`TestStreamingSendsNoDuplicateTriples`,
+   518	`TestBulkModelPassesSendNoDuplicateTriples`,
+   519	`TestSnapshotHistoryReplayStagesNoDuplicateTriples` and
+   520	`TestIncrementalHistoryReplaySendsNoDuplicateTriples`.
+   521	
+   522	
+   523	Two limits worth knowing. Every target gets the whole org's user set, so a branch
+   524	holds a few User resources it does not reference; the alternative is a per-branch
+   525	pass over a set that barely varies by branch. And a user who leaves the
+   526	organisation, or is removed from `user_account` entirely, keeps their resource until
+   527	the next full sync — nothing enumerates users to retract them, exactly as a
+   528	workspace delete leaves the edges pointing at it.
+   529	
+   530	## Workspaces
+   531	
+   532	Workspaces are modelled explicitly and also as a string property on components and references. This is to facilitate explicit use of workspace ids and be backwards compatible with gremlin graph queries which treat workspace as a string property on nodes.
+   533	
+   534	```text
+   535	
+   536	# Workspace class:
+   537	  http://data.ardoq.com/meta-model/Workspace
+   538	
+   539	# Workspace instance:
+   540	  http://data.ardoq.com/instances/workspaces/<workspace._id>
+   541	
+   542	# Edge to the workspace, from a component or a reference reifier:
+   543	  http://data.ardoq.com/model/common/workspace
+   544	
+   545	# The same value as a literal, for gremlin parity:
+   546	  http://data.ardoq.com/model/common/rootWorkspace
+   547	
+   548	```
+   549	
+   550	`Workspace` sits at the meta level next to `Tag`, for the same reason: its members
+   551	are individuals a customer created, not model constructs. No concrete type row
+   552	mints it and no shape targets it.
+   553	
+   554	The literal and the edge are two IRIs, not one. OWL 2 DL keeps object and data
+   555	properties disjoint — "no IRI is declared to be both object and data property" —
+   556	so `common/rootWorkspace` stays the `owl:DatatypeProperty` gremlin queries read,
+   557	and `common/workspace` is the `owl:ObjectProperty` that points at the resource.
+   558	Both are built from the one `rootWorkspace` column, so they cannot name different
+   559	workspaces.
+   560	
+   561	A workspace individual carries the same built-ins a component does, rather than a
+   562	second spelling of name and description:
+   563	
+   564	```text
+   565	workspace._id            aqCommon:id
+   566	workspace.name           aqCommon:name
+   567	workspace.description    aqCommon:description
+   568	workspace.created        aqCommon:created,       xsd:dateTime
+   569	workspace.createdBy      aqCommon:createdBy
+   570	workspace.lastUpdated    aqCommon:lastUpdated,   xsd:dateTime
+   571	workspace.lastModifiedBy aqCommon:lastModifiedBy
+   572	```
+   573	
+   574	Example source rows:
+   575	
+   576	```text
+   577	workspace._id            ws-apps
+   578	workspace.name           Applications
+   579	workspace.description    Business application landscape
+   580	
+   581	component._id            app-001
+   582	component.rootWorkspace  ws-apps
+   583	
+   584	reference._id            ref-deploy-001
+   585	reference.rootWorkspace  ws-apps
+   586	```
+   587	
+   588	Example triples:
+   589	
+   590	```turtle
+   591	aqWorkspace:ws-apps a aqModel:Workspace ;
+   592	  aqCommon:id "ws-apps" ;
+   593	  aqCommon:name "Applications" ;
+   594	  aqCommon:description "Business application landscape" .
+   595	
+   596	aqComponent:app-001
+   597	  aqCommon:rootWorkspace "ws-apps" ;
+   598	  aqCommon:workspace aqWorkspace:ws-apps .
+   599	
+   600	aqRefStatement:SHA1
+   601	  aqCommon:rootWorkspace "ws-apps" ;
+   602	  aqCommon:workspace aqWorkspace:ws-apps .
+   603	```
+   604	
+   605	A reference's workspace is its own `reference.rootWorkspace` column, not its
+   606	source component's, and it lands on the reifier — the node that also carries the
+   607	edge's id and properties. `reference.targetWorkspace` also exists in the source
+   608	and is not mapped: a cross-workspace reference is currently found through its
+   609	target component's workspace.
+   610	
+   611	Like `hasTag`, `common/workspace` carries no `rdfs:domain`, because its subject may
+   612	be a component or a reference reifier. Its range is stated in SHACL, through the
+   613	built-in property shape linked onto each concrete component type and each concrete
+   614	reference type node shape.
+   615	
+   616	The inbound edges are not built from the workspace row. Membership lives on the
+   617	component and reference rows, so each entity asserts its own edge — the mirror
+   618	image of tags, where membership is on the tag row. A workspace delete therefore
+   619	retracts only the workspace's own triples; the edges pointing at it are cleared
+   620	when their entities are updated or deleted, by `del_component_metadata` and
+   621	`del_reference_metadata`. Those two clear `common/workspace` by pattern for the
+   622	same reason they clear `common/parent`: `del_all_about` removes only
+   623	literal-object triples, so a component that moved workspace would otherwise
+   624	assert both the old and the new one.
+   625	
+   626	There is no `branched_workspace` table in Ardoq — workspaces are not branched.
+   627	It does not come up: Ardoq branches are not synced at all, so the `workspace`
+   628	rows are asserted into `main` and nowhere else.
+   629	
+   630	## Built In Data Properties
+   631	
+   632	Built-in literal component fields are `owl:DatatypeProperty` values with domain `Component`, range constraints, and SHACL data-property shapes:
+   633	
+   634	```text
+   635	common/id            label "Ardoq OID",    range xsd:string
+   636	common/componentKey  label "Ardoq ID",     range xsd:string
+   637	common/name          label "Name",         range xsd:string
+   638	common/description   label "Description",  range xsd:string
+   639	common/created       label "Created",      range xsd:dateTime
+   640	common/lastUpdated   label "Last updated", range xsd:dateTime
+   641	common/rootWorkspace label "Workspace",    range xsd:string
+   642	common/color         label "Color",        range xsd:string
+   643	common/icon          label "Icon",         range xsd:string
+   644	common/image         label "Image",        range xsd:string
+   645	common/shape         label "Shape",        range xsd:string
+   646	common/order         label "Order",        range xsd:decimal
+   647	```
+   648	
+   649	And the object-valued built-ins, whose labels come from the same table:
+   650	
+   651	```text
+   652	common/createdBy      label "Created by",  range common/User
+   653	common/lastModifiedBy label "Updated by",  range common/User
+   654	common/workspace      label "Workspace",   range Workspace
+   655	common/parent         label "ardoq_parent", range Component   (see below)
+   656	common/hasTag         label "Tags",        range Tag
+   657	```
+   658	
+   659	### The four predicates every field type carries
+   660	
+   661	A field type carries the same four things: two for a machine to match on, two for a
+   662	person to read.
+   663	
+   664	```turtle
+   665	aqFieldType:gf-cost
+   666	  aqModel:id   "gf-cost" ;              # machine-readable id
+   667	  aqModel:name "cost" ;                 # machine-readable name
+   668	  rdfs:label   "Cost" ;                 # human-readable label
+   669	  rdfs:comment "Annual licence cost" .  # human-readable description
+   670	```
+   671	
+   672	These four are the identity, and every field type has them. A *custom* field type
+   673	also carries what its `global_field` row says the field is — `aqModel:fieldType` and
+   674	`aqModel:numberFormatOptions`, described under Global Fields — and a built-in
+   675	carries neither, having no row to read them from. Where the field sits in a model's
+   676	field list is on a separate resource again; see Model Fields.
+   677	
+   678	Built-ins take the same shape:
+   679	
+   680	```turtle
+   681	aqCommon:name a aqModel:BuiltInFieldType, owl:Class, owl:DatatypeProperty ;
+   682	  aqModel:id   "name" ;
+   683	  aqModel:name "name" ;
+   684	  rdfs:label   "Name" .
+   685	
+   686	aqCommon:id a aqModel:BuiltInFieldType, owl:Class, owl:DatatypeProperty ;
+   687	  aqModel:id   "id" ;
+   688	  aqModel:name "id" ;
+   689	  rdfs:label   "Ardoq OID" .
+   690	```
+   691	
+   692	One query then answers "what is this field called" without knowing which kind it is.
+   693	
+   694	**The identity is at the meta level, not under `common/`.** `common/id` and
+   695	`common/name` are themselves built-in field types, so describing a field type with
+   696	them described it using itself: the graph held `common/name common/name "name"`.
+   697	`meta-model/id` and `meta-model/name` are the syncer's own vocabulary for describing
+   698	a model construct, declared as `owl:AnnotationProperty` — the bucket `rdfs:label` is
+   699	in — because their subjects are classes and properties rather than individuals.
+   700	
+   701	The split is the level, not the meaning:
+   702	
+   703	| Question | Predicate | Subjects |
+   704	| --- | --- | --- |
+   705	| Which model constructs are there? | `meta-model/id`, `meta-model/name` | component types, reference types, field types |
+   706	| Which things are there? | `common/id`, `common/name` | components, reference reifiers, workspaces, tags, users |
+   707	
+   708	An individual keeps its fields. A component really does have a field Ardoq calls
+   709	"Ardoq OID", and advanced search filters on it, so `common/id` on a component is a
+   710	field value like any other and stays exactly where it is.
+   711	
+   712	**`rdfs:label` is the display label, not the source column name.** These are Ardoq's
+   713	own words, taken from advanced search where it names the field and from the
+   714	renderers otherwise. A label repeating the column name left the graph showing Ardoq's
+   715	internal spellings to people.
+   716	
+   717	**The id and the name are the same string on a built-in.** A custom field type has
+   718	two distinct machine strings — an opaque `global_field._id` and the name
+   719	`__ardoqCustomFields` is keyed by — and a built-in has no source row, so it writes
+   720	its one name under both. Both are still emitted so that neither query needs a special
+   721	case.
+   722	
+   723	**The name is not always the IRI's last segment.** Ardoq calls `common/componentKey`
+   724	the field `component-key`, and `common/hasTag` the field `tags`. A consumer parsing
+   725	the IRI to recover a field name would silently get the wrong string for those two,
+   726	which is why the name is written down. `common/order` is a third case with a
+   727	different cause — its source column has two names, one per entity type — and is
+   728	described under "Where an entity sits among its siblings" below.
+   729	
+   730	**`common/parent` is the one exception to the display-label rule.** Its `rdfs:label`
+   731	is `ardoq_parent`, not "Parent" — deliberate and long-standing. Its `meta-model/name`
+   732	is `parent` like any other, so a query for the field by name is unaffected.
+   733	
+   734	Built-ins carry no `rdfs:comment`: Ardoq has no description for them, and inventing
+   735	prose here would put this repo's words in a customer's graph as if they were Ardoq's.
+   736	
+   737	A concrete component or reference type carries `meta-model/id` too, so a query can
+   738	join on it without parsing the IRI — but no `meta-model/name`. A type's name *is* its
+   739	label, so a name there would only restate it; a field type's name and label are
+   740	genuinely different strings, which is why it carries both. The name-level class is
+   741	minted from the name rather than read from a row, so it carries neither.
+   742	
+   743	Two pairs share a label, as they do in Ardoq: `common/rootWorkspace` and
+   744	`common/workspace` are the literal and the edge for the same fact — their *names*
+   745	differ, so a query can still tell them apart — and `common/id` and
+   746	`common/componentKey` are kept apart as "Ardoq OID" (the row's `_id`) and "Ardoq ID"
+   747	(the key a person quotes).
+   748	
+   749	`common/componentKey` carries `component.componentKey`, the short identifier a
+   750	person quotes when they mean one component (`ACDMPL-1`), and is what advanced
+   751	search filters on. It is components only — a reference row has no key column. A
+   752	component with no key writes no triple, so a filter cannot match an empty one.
+   753	
+   754	`common/workspace` is the object-property counterpart of `common/rootWorkspace`;
+   755	see the Workspaces section above. `common/createdBy` and
+   756	`common/lastModifiedBy` are object properties too, pointing at a
+   757	`common/User`; see the Users section.
+   758	
+   759	### How a component is drawn
+   760	
+   761	Ardoq styles a component in two places. The component *type* carries a colour, an
+   762	icon, an image and a shape that every component of the type inherits, and a
+   763	component carries whichever of the four it overrides. Both halves are published,
+   764	under different predicates, because a store that carried only the override would
+   765	answer "what colour is this" with nothing for most components — in the dev source
+   766	every `component_type` row has a colour and an icon and no `component` row has
+   767	either.
+   768	
+   769	The component's overrides are built-in fields alongside the ones above:
+   770	
+   771	```text
+   772	common/color  component.color
+   773	common/icon   component.icon
+   774	common/image  component.image
+   775	common/shape  component.shape
+   776	```
+   777	
+   778	The type's defaults are meta-level annotation properties, on the concrete class:
+   779	
+   780	```text
+   781	meta-model/color  label "Default color",  component_type.color
+   782	meta-model/icon   label "Default icon",   component_type.icon
+   783	meta-model/image  label "Default image",  component_type.image
+   784	meta-model/shape  label "Default shape",  component_type.shape
+   785	```
+   786	
+   787	They are at the meta level for the reason `meta-model/id` is: their subject is a
+   788	model construct, not one of the individuals `common/` describes. A component type
+   789	already carries `rdfs:label` and `rdfs:comment` where a component carries
+   790	`common/name` and `common/description`, and this follows that split. They are
+   791	concrete-class only — the name-level class is shared by every model with a type of
+   792	that name, so a colour there would be multi-valued with nothing to say whose it is,
+   793	the same reason `meta-model/modelId` is concrete-only. Nothing shapes them and
+   794	nothing declares them field types: they describe the class, not its instances.
+   795	
+   796	Keeping the two levels on different predicates is also what makes an override
+   797	recoverable. One shared predicate would say a component is `#ff0000` and its type
+   798	is `#ff0000` with nothing to distinguish "set here" from "inherited". Resolving the
+   799	effective value is one `COALESCE` over the two:
+   800	
+   801	```sparql
+   802	SELECT ?c ?icon WHERE {
+   803	  ?c a/rdfs:subClassOf* aqModel:Component .
+   804	  OPTIONAL { ?c aqCommon:icon ?own }
+   805	  OPTIONAL { ?c rdf:type/aqModel:icon ?default }
+   806	  BIND(COALESCE(?own, ?default) AS ?icon)
+   807	}
+   808	```
+   809	
+   810	All eight are `xsd:string` and nothing narrower is claimed. A colour is `#af73ff`
+   811	in some rows and `rgba(3,42,83,1)` in others and neither is normalised; an icon is
+   812	a sprite name (`svg_sprite_contract`); a shape is a renderer key (`item`,
+   813	`bpmn-user`, `archimate-rect-interface`) and has nothing to do with the SHACL
+   814	shapes elsewhere in this document; and an image is a relative Ardoq attachment
+   815	path (`/api/attachment/org/<org>/<id>`), so it is not `xsd:anyURI` — it is not a
+   816	URI a consumer can resolve on its own.
+   817	
+   818	An unset column writes no triple, at either level. That matters more here than for
+   819	the other built-ins, because overriding nothing is the normal case: an empty
+   820	literal on each of the four would make "this component inherits its colour"
+   821	indistinguishable from "this component is drawn in the colour empty-string".
+   822	
+   823	Components only. A `reference` row has no style column at all, so none of the four
+   824	is declared on a reference type, and `reference_type` styles an edge with its own
+   825	words — `line`, `svgStyle`, `lineBeginning`, `lineEnding` — none of which is
+   826	published yet.
+   827	
+   828	### Where an entity sits among its siblings
+   829	
+   830	Both components and references carry an order, and both publish it under one
+   831	predicate:
+   832	
+   833	```text
+   834	common/order  label "Order",  name "order",  range xsd:decimal
+   835	              component."_order"   double precision, NOT NULL
+   836	              reference."order"    integer, NOT NULL DEFAULT 1
+   837	```
+   838	
+   839	```turtle
+   840	aqComponent:app-001 aqCommon:order "1"^^xsd:decimal .
+   841	aqComponent:app-002 aqCommon:order "1.5"^^xsd:decimal .
+   842	aqReference:ref-001 aqCommon:order "1"^^xsd:decimal .
+   843	```
+   844	
+   845	Advanced search filters on order, and before this the predicate reached nothing: a
+   846	filter on order returned an empty result from GraphLake while the same filter
+   847	against Ardoq matched, with nothing reporting that the field was simply absent.
+   848	
+   849	**The source column has two names.** On a component it is `_order`, on a reference
+   850	it is `order`. Each side is read under the name its own column has, and the field's
+   851	machine name is the predicate's own — `order`, not either column's spelling. A
+   852	leading underscore is Ardoq's internal marker rather than the name of a field anyone
+   853	asks for, and a field type cannot carry two names without doubling every row of a
+   854	query that lists an entity's fields by name.
+   855	
+   856	**The datatype is `xsd:decimal`, which is neither column's own type.** A component's
+   857	order is a `double precision` and a reference's is an `integer`, and one predicate
+   858	has one SHACL property shape: a shape declaring either of those would report the
+   859	other side's values as violations. `xsd:decimal`'s value space holds both, and it is
+   860	already the datatype a `Number` custom field gets (see Field Values On Instances),
+   861	so a numeric filter written for one field works on the other.
+   862	
+   863	The `double precision` is not an accident to be rounded away. Ardoq gives a
+   864	component dragged between two siblings the midpoint of their orders rather than
+   865	renumbering the list, so `1.5` is an ordinary position and truncating it would
+   866	reorder the workspace.
+   867	
+   868	**The lexical form is canonical, and the same from every path.** The full sync scans
+   869	the column from Postgres; streaming and history replay decode it out of a
+   870	`row_to_json` payload, where a number arrives as a `float64` and Go's default
+   871	rendering switches to exponent form once the exponent reaches the digit count
+   872	(`1234567` renders `1.234567e+06`). Two spellings of one order are two triples for
+   873	one fact: the diff that moves a component would churn a delete and an insert on an
+   874	order nobody changed, and a consumer matching the literal would miss whichever
+   875	spelling it was not holding. One renderer serves all three paths, exactly as
+   876	`idValueAsString` does for the numeric id columns.
+   877	
+   878	**A value that is not a number writes no triple.** This is where order parts company
+   879	with the audit timestamps, which fall back to a plain string: a `lastUpdated` Ardoq
+   880	never validated really can hold unparseable text, whereas both order columns are
+   881	numeric and NOT NULL in every org schema. A string under a predicate whose shape says
+   882	`xsd:decimal` would be reported by SHACL as if the value were the problem, so the
+   883	value is dropped and logged instead.
+   884	
+   885	**`common/order` is not `meta-model/order`.** They are different facts about
+   886	different subjects: this one is where a component or a reference sits among its
+   887	siblings, and `meta-model/order` is where a field sits in one model's field list,
+   888	whose subject is a `ModelField` (see Model Fields). Only the field-level one is
+   889	read from `field_id_by_model._order` — a third `_order` column, and a third type
+   890	again, which is why the schema declaration names it per table.
+   891	
+   892	**Filter on it by value, not by term.** A bound literal in a triple pattern matches
+   893	by term, so `1` — which is `"1"^^xsd:integer` — does not match an order:
+   894	
+   895	```sparql
+   896	# matches nothing: "1"^^xsd:integer is not "1"^^xsd:decimal
+   897	ASK { ?ref aqCommon:order 1 }
+   898	
+   899	# matches: = is defined over numeric values, across datatypes
+   900	ASK { ?ref aqCommon:order ?order . FILTER(?order = 1) }
+   901	```
+   902	
+   903	This is not specific to order — every `Number` custom field carries `xsd:decimal`
+   904	and behaves the same way — but it is what a consumer filtering on order has to do.
+   905	Both directions are asserted in the container rig, so a consumer reading this can
+   906	rely on them.
+   907	
+   908	Example for `common/name`:
+   909	
+   910	```turtle
+   911	aqCommon:name a owl:DatatypeProperty ;
+   912	  a aq:BuiltInFieldType
+   913	  rdfs:domain aqModel:Component ;
+   914	  rdfs:range xsd:string .
+   915	
+   916	aqShape:54dcd78d-dcaf-579b-ae22-1dc9441dc833 a sh:NodeShape ;
+   917	  sh:targetClass aqModel:Component ;
+   918	  sh:property aqShape:4ee11288-8350-5275-ad74-f52c5af3628c .
+   919	
+   920	aqShape:4ee11288-8350-5275-ad74-f52c5af3628c a sh:PropertyShape ;
+   921	  sh:path aqCommon:name ;
+   922	  sh:datatype xsd:string .
+   923	```
+   924	
+   925	`common/parent` is an `owl:ObjectProperty`, because component parent triples point to another component resource. Its `rdfs:label` is `ardoq_parent`, not `parent` — the one built-in whose label is not Ardoq's display wording. Its `common/name` is still `parent`, so a query for the field by name is unaffected:
+   926	
+   927	```turtle
+   928	aqCommon:parent a owl:ObjectProperty ;
+   929	  rdfs:label "ardoq_parent" ;
+   930	  rdfs:domain aqModel:Component ;
+   931	  rdfs:range aqModel:Component .
+   932	
+   933	aqShape:54dcd78d-dcaf-579b-ae22-1dc9441dc833
+   934	  sh:property aqShape:edd0a4c4-2c8d-5bb0-bb64-c4894c3aef3b .
+   935	
+   936	aqShape:edd0a4c4-2c8d-5bb0-bb64-c4894c3aef3b a sh:PropertyShape ;
+   937	  sh:path aqCommon:parent ;
+   938	  sh:class aqModel:Component .
+   939	```
+   940	
+   941	## Component Types
+   942	
+   943	Each `component_type` row creates two class levels:
+   944	
+   945	```text
+   946	Component
+   947	  -> common component name class, minted from component_type.name
+   948	    -> concrete component type class, identified by component_type._id
+   949	```
+   950	
+   951	Example source row:
+   952	
+   953	```text
+   954	component_type._id         ct-7f3a9d2c
+   955	component_type.name        Application
+   956	component_type.description Business application final schema
+   957	component_type.color       #af73ff
+   958	component_type.icon        svg_sprite_application
+   959	component_type.shape       item
+   960	component_type.image       (null)
+   961	```
+   962	
+   963	Example triples:
+   964	
+   965	```turtle
+   966	aqCompType:a0a27382-298e-574f-a571-dea6ea4cd2ca a rdfs:Class, owl:Class ;
+   967	  rdfs:subClassOf aqModel:Component ;
+   968	  rdfs:label "Application" .
+   969	
+   970	aqCompType:ct-7f3a9d2c a rdfs:Class, owl:Class ;
+   971	  rdfs:subClassOf aqCompType:a0a27382-298e-574f-a571-dea6ea4cd2ca ;
+   972	  rdfs:comment "Business application final schema" ;
+   973	  aqModel:color "#af73ff" ;
+   974	  aqModel:icon  "svg_sprite_application" ;
+   975	  aqModel:shape "item" .
+   976	  # no aqModel:image: the column is null, so no triple
+   977	```
+   978	
+   979	The four style values are the defaults every component of the type inherits, and
+   980	they land on the concrete class only. See "How a component is drawn" above for what
+   981	a component overrides them with and how to resolve the effective value.
+   982	
+   983	Delete operations remove the concrete component type triples. They do not delete the common name class, because that class can be shared by other component types.
+   984	
+   985	### The legacy model and type ids
+   986	
+   987	Ardoq's pre-GraphLake code holds `component.typeId` and `component.model` — the
+   988	model-local type id and the model id — and neither resolves without the type row. The
+   989	concrete type publishes both so that one property path answers it, without the model
+   990	becoming a resource of its own:
+   991	
+   992	```turtle
+   993	aqCompType:ct-app-m1
+   994	  aqModel:id              "ct-app-m1" ;   # component_type._id
+   995	  aqModel:componentTypeId "p101" ;        # component_type.id      (model-local)
+   996	  aqModel:modelId         "m5001" .       # component_type.modelId
+   997	
+   998	aqRefType:rt-deployed-on
+   999	  aqModel:id              "rt-deployed-on" ;
+  1000	  aqModel:referenceTypeId "201" ;         # reference_type.id
+  1001	  aqModel:modelId         "m5001" .
+  1002	```
+  1003	
+  1004	```sparql
+  1005	?component rdf:type/aqModel:modelId         ?modelId .
+  1006	?component rdf:type/aqModel:componentTypeId ?componentTypeId .
+  1007	```
+  1008	
+  1009	A reference resolves the same way through its reifier, which is typed with the punned
+  1010	reference type.
+  1011	
+  1012	**This is a compatibility bridge.** Code written against GraphLake should use the type
+  1013	IRI, which is minted from the `_id` and identifies a type on its own. These two do not:
+  1014	the model-local id repeats across models, so only the pair means anything.
+  1015	
+  1016	**`componentTypeId` here is the model-local `component_type.id`, not the `_id`.** That
+  1017	is the opposite of what the word means in Ardoq's own schema, where a
+  1018	`componentTypeId` column matches `component_type._id` — `global_field_component_type`
+  1019	is the one to compare against. The names are the ones the consumer asked for; the
+  1020	`_id` is on `aqModel:id` beside them.
+  1021	
+  1022	**Concrete types only.** The name-level class is shared by every model that has a type
+  1023	of that name, so a `modelId` there would be multi-valued — and a component's
+  1024	`rdf:type` reaches the name-level class under RDFS entailment, so the extra answer
+  1025	would arrive unasked. Two models' "Application" is the case that shows it: they share
+  1026	one name class *and* the same model-local id, and differ only in the model.
+  1027	
+  1028	**`reference_type.id` is an integer** where the component side's is a varchar. It
+  1029	reaches the graph as a plain integer literal on all three write paths; see
+  1030	`idValueAsString` for why that needed saying.
+  1031	
+  1032	## Reference Types
+  1033	
+  1034	Each `reference_type` row creates two object-property levels:
+  1035	
+  1036	```text
+  1037	common reference name property, minted from reference_type.name
+  1038	  -> concrete reference type property, identified by reference_type._id
+  1039	```
+  1040	
+  1041	The concrete reference type property keeps using `reference_type._id`. For example, `http://data.ardoq.com/model/reference-types/deployed_on` means the source `_id` is `deployed_on`; it is not the label lookup path.
+  1042	
+  1043	Example source row:
+  1044	
+  1045	```text
+  1046	reference_type._id         rt-2a91f4e0
+  1047	reference_type.name        deployed on
+  1048	reference_type.description Application deployment target final schema
+  1049	```
+  1050	
+  1051	Example triples:
+  1052	
+  1053	```turtle
+  1054	aqRefType:fd3203a9-9f55-5d50-a1fc-ffc4d1162da3 a owl:ObjectProperty ;
+  1055	  rdfs:label "deployed on" .
+  1056	
+  1057	aqRefType:rt-2a91f4e0 a owl:ObjectProperty ;
+  1058	  rdfs:subPropertyOf aqRefType:fd3203a9-9f55-5d50-a1fc-ffc4d1162da3 ;
+  1059	  rdfs:comment "Application deployment target final schema" .
+  1060	```
+  1061	
+  1062	Delete operations remove the concrete reference type triples. They do not delete the common reference property, because that property can be shared by other reference types with the same name.
+  1063	
+  1064	## Global Fields
+  1065	
+  1066	Each `global_field` row is mapped to an `owl:DatatypeProperty`. The field IRI is based on the field `_id` even though the name is unique.
+  1067	
+  1068	Datatype mapping. This one table settles both sides of a field: the
+  1069	`rdfs:range` and `sh:datatype` on the property, and the datatype on every value
+  1070	of that field. One function decides it, so the schema and the data cannot
+  1071	disagree.
+  1072	
+  1073	```text
+  1074	Text, TextArea, List, SelectMultipleList, Email -> xsd:string
+  1075	User, File                                      -> xsd:string
+  1076	Url                                             -> xsd:anyURI
+  1077	Number                                          -> xsd:decimal
+  1078	Checkbox                                        -> xsd:boolean
+  1079	Date                                            -> xsd:date
+  1080	DateTime                                        -> xsd:dateTime
+  1081	DateOnlyRange, DateTimeRange                    -> graphlake iso8601-date-interval
+  1082	unknown or empty                                -> xsd:string
+  1083	```
+  1084	
+  1085	The twelve named types are Ardoq's own set (`ardoq-api`,
+  1086	`src/ardoq/utils/field_utils.clj`, `field-types`). `DateTimeRange` and
+  1087	`DateOnlyRange` are not among them and never appear in `global_field.type`: they
+  1088	are a collapsing of two `Date`/`DateTime` rows, which the syncer performs itself.
+  1089	See Date Ranges below.
+  1090	
+  1091	Two of the mappings are worth a note:
+  1092	
+  1093	- `Date` is `xsd:date`, not `xsd:dateTime`. A `Date` value is a plain calendar
+  1094	  date (`"2024-02-19"`), which is not a valid `xsd:dateTime` lexical form.
+  1095	- `User` and `File` hold an opaque id — a user `_id` and an attachment id. They are
+  1096	  still strings here. Users *are* now mapped (see the Users section), so a `User`
+  1097	  field value should become an object property pointing at a `common/User`; that is
+  1098	  not done yet. Files are not synced, so `File` stays a string.
+  1099	
+  1100	Example source row:
+  1101	
+  1102	```text
+  1103	global_field._id                 gf-8b64
+  1104	global_field.name                lifecycle
+  1105	global_field.label               Lifecycle
+  1106	global_field.type                List
+  1107	global_field.numberFormatOptions null
+  1108	```
+  1109	
+  1110	Example triples:
+  1111	
+  1112	```turtle
+  1113	aqFieldType:lifecycle a owl:DatatypeProperty ;
+  1114	  rdfs:label "Lifecycle" ;
+  1115	  aqModel:fieldType "List" ;
+  1116	  rdfs:range xsd:string .
+  1117	
+  1118	aqShape:8330a795-289b-5960-80e8-ec3145342d0d a sh:PropertyShape ;
+  1119	  sh:path aqFieldType:lifecycle ;
+  1120	  sh:datatype xsd:string .
+  1121	```
+  1122	
+  1123	The SHACL property shape is keyed by the field property IRI. Field type delete operations remove the field's data-property shape triples because the field type itself is being removed.
+  1124	
+  1125	### Date Ranges
+  1126	
+  1127	Ardoq has no range field. A "Date Range" or "Date Time Range" in the UI is **two
+  1128	`global_field` rows**, distinguished by a suffix on both the machine name and the
+  1129	display label:
+  1130	
+  1131	```text
+  1132	global_field  gf-live-start  name=live_start_date  label=Live.StartDate  type=Date
+  1133	              gf-live-end    name=live_end_date    label=Live.EndDate    type=Date
+  1134	```
+  1135	
+  1136	Ardoq's frontend collapses the pair into one field of type `DateOnlyRange` or
+  1137	`DateTimeRange`, and the syncer does the same, so the graph shows the one field a
+  1138	person sees rather than the two rows the database holds.
+  1139	
+  1140	**The start row publishes the whole range, under its own IRI.** That identity is
+  1141	Ardoq's choice, not this repo's: `collapse-date-range-field` gives the collapsed
+  1142	field the start field's `_id` and `field_view` reports it, so a consumer holding a
+  1143	range field's id from Ardoq's API matches the IRI here. It also means the field's
+  1144	model-field links and type constraints need no rewriting.
+  1145	
+  1146	**The end row publishes nothing at all** — no property, no shape, no model field,
+  1147	no type constraint. Its dates are inside the start field's interval literal, so a
+  1148	property of its own would be the same fact under a second predicate.
+  1149	
+  1150	```turtle
+  1151	aqFieldType:gf-live-start a aqModel:CustomFieldType, owl:Class, owl:DatatypeProperty ;
+  1152	  aqModel:id        "gf-live-start" ;   # still the start row's _id
+  1153	  aqModel:name      "live" ;            # the suffix removed
+  1154	  aqModel:fieldType "DateOnlyRange" ;   # Ardoq's word for the collapsed field
+  1155	  rdfs:label        "Live" .
+  1156	
+  1157	aqShape:ef16e9dc-b8a6-55e7-b25a-8104184f799b a sh:PropertyShape ;
+  1158	  sh:path aqFieldType:gf-live-start ;
+  1159	  sh:datatype <http://graphlake.net/types/iso8601-date-interval> .
+  1160	```
+  1161	
+  1162	A value is one ISO 8601 interval: two endpoints separated by a slash, both dates
+  1163	or both dateTimes. **Either side may be empty**, because a range with only a start
+  1164	is ordinary data — a subscription nobody has cancelled — rather than an incomplete
+  1165	row:
+  1166	
+  1167	```turtle
+  1168	aqComponent:app-001
+  1169	  aqFieldType:gf-live-start "2024-01-01/2024-12-31"^^glType:iso8601-date-interval .
+  1170	
+  1171	# 2024-01-01/    still running, no end date
+  1172	# /2024-12-31    ended, no recorded start
+  1173	```
+  1174	
+  1175	Neither half set writes no triple. `"/"` carries no information and GraphLake
+  1176	rejects it outright, which would fail the whole update it arrived in.
+  1177	
+  1178	The two endpoints are rendered for the field's own collapsed type rather than for
+  1179	whatever each value looks like, because GraphLake rejects an interval whose sides
+  1180	are different kinds. A `DateOnlyRange` holding a value with a time in it therefore
+  1181	writes two dates, the same truncation an ordinary `Date` field makes.
+  1182	
+  1183	`gl:intervalStart` and `gl:intervalEnd` read the endpoints back as typed
+  1184	`xsd:date` / `xsd:dateTime` literals, and an open end comes back unbound:
+  1185	
+  1186	```sparql
+  1187	PREFIX gl: <http://graphlake.net/functions/>
+  1188	SELECT ?c WHERE {
+  1189	  ?c aqFieldType:gf-live-start ?live .
+  1190	  FILTER(gl:intervalStart(?live) <= "2024-06-01"^^xsd:date)
+  1191	  FILTER(!BOUND(gl:intervalEnd(?live)) || gl:intervalEnd(?live) >= "2024-06-01"^^xsd:date)
+  1192	}
+  1193	```
+  1194	
+  1195	**Which rows are endpoints is decided from the one row**, by the type, the name
+  1196	suffix and the label suffix together — Ardoq's own test
+  1197	(`date-range-start-field?`). The label matters as much as the name: a customer may
+  1198	legitimately call a plain `Date` field `contract_end_date`, and only the
+  1199	`.EndDate` label says the frontend created it as half of a range.
+  1200	
+  1201	Deciding per row rather than by pairing the two is deliberate. Pairing would mean
+  1202	holding the sibling's state on all three ingest paths, and on the streaming path
+  1203	the events arrive one at a time, so a start field seen before its end existed
+  1204	would publish the uncollapsed form and need retracting later. Two things follow
+  1205	from the choice:
+  1206	
+  1207	- An **orphaned end row** — one whose start row is missing, which Ardoq's own
+  1208	  metamodel refactoring can leave behind — publishes nothing, rather than
+  1209	  reverting to a plain `Date` field. Its values go with it.
+  1210	- An **orphaned start row** publishes a range whose values are always open at the
+  1211	  end.
+  1212	
+  1213	One narrow gap is left on the streaming path. Renaming an ordinary `Date` field
+  1214	*into* an endpoint retracts its property, but a model field or type constraint
+  1215	already pointing at it is only corrected by the next full sync: nothing emits an
+  1216	event for those rows when the field they name is renamed.
+  1217	
+  1218	### `aqModel:fieldType` Is Ardoq's Word, Not The XSD One
+  1219	
+  1220	The datatype table above is lossy in one direction. Seven Ardoq types — `Text`,
+  1221	`TextArea`, `List`, `SelectMultipleList`, `Email`, `User` and `File` — all become
+  1222	`xsd:string`, so a consumer reading only `sh:datatype` cannot tell a free-text field
+  1223	from a single-select list from an email address. Advanced search needs that
+  1224	distinction to choose an editor and a filter for the field.
+  1225	
+  1226	So `global_field.type` is published verbatim as well as derived:
+  1227	
+  1228	```turtle
+  1229	aqFieldType:lifecycle
+  1230	  aqModel:fieldType "List" .           # global_field.type, unaltered
+  1231	```
+  1232	
+  1233	Both, not one: `sh:datatype` is what a value must validate against, `aqModel:fieldType`
+  1234	is what Ardoq calls the field. A field with no type writes no triple.
+  1235	
+  1236	### `aqModel:numberFormatOptions`
+  1237	
+  1238	`global_field.numberFormatOptions` is a jsonb column carried as one string literal.
+  1239	It holds a format name on most fields and an option object on some, so both shapes
+  1240	reach the graph:
+  1241	
+  1242	```turtle
+  1243	aqFieldType:revenue
+  1244	  aqModel:fieldType           "Number" ;
+  1245	  aqModel:numberFormatOptions "currencyUSD" .   # jsonb string "currencyUSD"
+  1246	
+  1247	aqFieldType:cost
+  1248	  aqModel:fieldType           "Number" ;
+  1249	  aqModel:numberFormatOptions "{\"decimals\":2,\"suffix\":\" USD\"}" .
+  1250	```
+  1251	
+  1252	One literal rather than a predicate per option. The option set is Ardoq's and this
+  1253	repo does not own it, so decomposing it would invent vocabulary here and silently
+  1254	drop whatever Ardoq adds to it next.
+  1255	
+  1256	**The literal is the column's value, not its JSON serialisation.** A jsonb string is
+  1257	serialised with its quoting — `"currencyUSD"` — and that quoting is Postgres's
+  1258	spelling rather than part of the value, so it is not published. Ardoq's own code
+  1259	writes and reads a format name as a plain string, and a consumer given
+  1260	`"currencyUSD"` would not recognise it.
+  1261	
+  1262	**The lexical form is canonicalised, and has to be.** The column reaches the mapper
+  1263	in two shapes: as text on the snapshot path, which is how pgx renders jsonb, and
+  1264	decoded on the CDC and history paths. Neither an object nor a scalar agrees across
+  1265	the two on its own.
+  1266	
+  1267	- Postgres orders jsonb keys by length then bytes and Go's encoder orders them
+  1268	  lexicographically, so `{"suffix":…,"decimals":…}` read by a full sync and the same
+  1269	  object read from a CDC event would be two different literals.
+  1270	- A string carries its quoting in the serialised text and none once decoded, so one
+  1271	  format would reach the graph as `"currencyUSD"` through a full resync and
+  1272	  `currencyUSD` through a streamed update, and both forms can be live in one
+  1273	  organisation at once because it depends on which route last wrote each field.
+  1274	  Nothing in the graph tells the two apart, since both are plain string literals.
+  1275	
+  1276	Both shapes are therefore decoded and rendered the one way. The decode is
+  1277	deliberately the lossy one — plain `json.Unmarshal`, numbers through float64 —
+  1278	because the decoded path has already been through it and the text path has to agree
+  1279	with the less precise of the two. Since a field-type update is a byte-for-byte diff
+  1280	of the before and after triples, two spellings would also churn a delete and an
+  1281	insert the first time any unrelated column changed.
+  1282	
+  1283	An absent, null or empty value writes no triple, so a query cannot match a field
+  1284	with no formatting against one whose formatting is `{}`. Text that is not JSON at
+  1285	all is kept as it stands rather than dropped: it is what a decoded string scalar
+  1286	looks like arriving, the column is unconstrained, and losing a value silently is
+  1287	worse than carrying an odd one.
+  1288	
+  1289	### Field Values On Instances
+  1290	
+  1291	A field's values, on components and on reference reifiers, are written as literals
+  1292	typed with the datatype from the table above. `xsd:string` is left implicit: a
+  1293	plain literal already has that datatype in RDF, so it is not spelled out.
+  1294	
+  1295	```turtle
+  1296	aqComponent:app-001
+  1297	  aqFieldType:gf-annual-cost "73218541"^^xsd:decimal ;   # Number
+  1298	  aqFieldType:gf-review-date "2024-02-19"^^xsd:date ;    # Date
+  1299	  aqFieldType:gf-approved    "true"^^xsd:boolean ;       # Checkbox
+  1300	  aqFieldType:gf-case        "https://ardoq.com/"^^xsd:anyURI ;  # Url
+  1301	  aqFieldType:gf-lifecycle   "Live" .                    # List, so xsd:string
+  1302	```
+  1303	
+  1304	Three rules govern how the lexical form is produced.
+  1305	
+  1306	**A `SelectMultipleList` value is an array, and becomes one triple per option.**
+  1307	
+  1308	```turtle
+  1309	aqComponent:app-001
+  1310	  aqFieldType:gf-data-type "Customer Financial Data" ,
+  1311	                           "Transaction and Payment Data" .
+  1312	```
+  1313	
+  1314	Not one literal holding both. Option labels contain spaces, so a single collapsed
+  1315	literal could not be split back into the options it came from.
+  1316	
+  1317	**A `Number` is never written in exponent form.** Values arrive as JSON numbers,
+  1318	so a cost of 73218541 must be written `"73218541"`, not `"7.3218541e+07"` — the
+  1319	latter is both a wrong string and an invalid `xsd:decimal`.
+  1320	
+  1321	**A value that does not fit its field type's datatype is written as a plain
+  1322	string, not as an invalid typed literal.** `global_field.type` is unconstrained
+  1323	text and the values are jsonb, so a `Number` field can hold `"n/a"`. GraphLake
+  1324	rejects a literal whose lexical form does not match its datatype, and a batch of
+  1325	ops is applied as one update — so emitting one invalid literal would fail the
+  1326	whole update and stall that store's stream. The fallback is logged with the
+  1327	schema, entity and field name so the source data can be fixed.
+  1328	
+  1329	Two conversions are applied rather than refused, both for fields whose type
+  1330	changed after values were already stored: a `Date` value carrying a time is
+  1331	truncated to its date, and a `DateTime` value holding a bare date becomes
+  1332	midnight UTC.
+  1333	
+  1334	**A date range's two values become one interval**, written under the collapsed
+  1335	field's predicate; see Date Ranges above.
+  1336	
+  1337	The built-in `common/created` and `common/lastUpdated` are `xsd:dateTime` on the
+  1338	same terms — typed when the value parsed, left a plain string when it did not.
+  1339	`common/createdBy` and `common/lastModifiedBy` are not literals at all: they are
+  1340	edges to a `common/User`. See the Users section.
+  1341	
+  1342	## Field-To-Component-Type Constraints
+  1343	
+  1344	`global_field_component_type` connects a global field to a component type.
+  1345	
+  1346	The field is resolved by joining `global_field_component_type.globalFieldId` to `global_field._id`. The component type is resolved by joining `global_field_component_type.componentTypeId` to either `component_type._id` or `component_type.id`; the emitted IRI always uses `component_type._id`.
+  1347	
+  1348	Example source rows:
+  1349	
+  1350	```text
+  1351	global_field._id                          gf-8b64
+  1352	global_field.name                         lifecycle
+  1353	global_field.type                         List
+  1354	component_type._id                        ct-7f3a9d2c
+  1355	global_field_component_type.globalFieldId gf-8b64
+  1356	global_field_component_type.componentTypeId ct-7f3a9d2c
+  1357	```
+  1358	
+  1359	Example triples:
+  1360	
+  1361	```turtle
+  1362	aqFieldType:lifecycle rdfs:domain aqCompType:ct-7f3a9d2c .
+  1363	
+  1364	aqShape:f3fefab0-d87a-546e-8999-7905dab2871c a sh:NodeShape ;
+  1365	  sh:targetClass aqCompType:ct-7f3a9d2c ;
+  1366	  sh:property aqShape:8330a795-289b-5960-80e8-ec3145342d0d .
+  1367	```
+  1368	
+  1369	Field constraint delete operations remove:
+  1370	
+  1371	```text
+  1372	field property rdfs:domain concrete component type
+  1373	node shape sh:property data-property-shape link
+  1374	```
+  1375	
+  1376	They do not delete the node shape's `rdf:type sh:NodeShape` or `sh:targetClass` scaffold, because the same component type node shape can be used by other fields.
+  1377	
+  1378	## Model Fields
+  1379	
+  1380	A field is two things in Ardoq, and only one of them has been in the graph so far.
+  1381	
+  1382	`global_field` is the definition shared across an organisation: what the field is
+  1383	called, what kind of value it holds, how a number in it is formatted. That is the
+  1384	field type above, and its property IRI is minted from `global_field._id`.
+  1385	
+  1386	`field_id_by_model` is the field's appearance in one model: which model, and where
+  1387	the field sits in that model's field list. That is a **model field**, and its IRI is
+  1388	minted from `field_id_by_model._id`.
+  1389	
+  1390	```text
+  1391	field_id_by_model._id           fm-8b64-m5001
+  1392	field_id_by_model.globalFieldId gf-8b64
+  1393	field_id_by_model.modelId       m5001
+  1394	field_id_by_model._order        3
+  1395	```
+  1396	
+  1397	```turtle
+  1398	aqModelField:fm-8b64-m5001 a aqModel:ModelField ;
+  1399	  aqModel:id      "fm-8b64-m5001" ;
+  1400	  aqModel:field   aqFieldType:gf-8b64 ;
+  1401	  aqModel:modelId "m5001" ;
+  1402	  aqModel:order   "3"^^xsd:integer .
+  1403	```
+  1404	
+  1405	**The order cannot live on the field type.** It is per model, not per field. In the
+  1406	Ardoq dev source, `review_date` sits in twenty-five models at nineteen different
+  1407	positions; writing that onto `aqFieldType:gf-review-date` would make `aqModel:order`
+  1408	multi-valued with nothing to say which model each value belongs to, which answers
+  1409	nothing for a consumer trying to sort a field list. So the placement gets a resource
+  1410	and the order goes on it.
+  1411	
+  1412	**This is also the id Ardoq's own API returns.** `field_view` — the view
+  1413	`advanced-search-fields` reads — is `global_field` joined to `field_id_by_model`,
+  1414	and it selects `field_id_by_model._id` as the field's `_id`. That is never
+  1415	`global_field._id`: in the dev source the two are equal in none of the 595 rows. A
+  1416	consumer holding a field id from Ardoq can only match it on a model field.
+  1417	
+  1418	**`aqModel:field`, not `aqModel:fieldType`.** The latter is taken by the value type
+  1419	on the definition, and the two mean quite different things — one is the string
+  1420	`"Number"`, this one is the edge to the property.
+  1421	
+  1422	**The order is `xsd:integer`, and zero is a position.** A field really can be first
+  1423	in the list, so a null order and an order of zero are not the same thing: the null
+  1424	writes no triple and the zero writes `"0"^^xsd:integer`. A placement with no order
+  1425	still gets its resource — the field is in the model whether or not it has been
+  1426	positioned.
+  1427	
+  1428	It is `xsd:integer` where an entity's own order is `xsd:decimal`, because
+  1429	`field_id_by_model._order` is an `integer` in the source and there is only one
+  1430	column behind this predicate. The two are different predicates about different
+  1431	subjects; see "Where an entity sits among its siblings".
+  1432	
+  1433	A model field carries no `rdfs:label`: its label is the field type's, and repeating
+  1434	it would give the graph two places to disagree. No SHACL shape targets it, as none
+  1435	targets a `Tag` or a `Workspace` — it classifies nothing a customer's data must
+  1436	validate against. The `appliesToAllComponentTypesWithinModel` and
+  1437	`appliesToAllReferenceTypesWithinModel` flags on the source row are not emitted;
+  1438	field-to-type attachment is already modelled by the constraint section above.
+  1439	
+  1440	A branch has its own `branched_field_id_by_model` rows, so a branch can reorder a
+  1441	model's field list without the main branch seeing it. The syncer does not read
+  1442	them: Ardoq branches are not synced, and `main` keeps its own order.
+  1443	
+  1444	### Model Fields And Time Travel
+  1445	
+  1446	`field_id_by_model` has no `__history` mirror, so the history backfill has
+  1447	nothing to walk and cannot reconstruct what order the fields were in at some
+  1448	past date.
+  1449	
+  1450	Replay therefore asserts the live rows once, before the first month, exactly the way
+  1451	it does the user directory (see the Users section, which has the same problem for a
+  1452	different reason). A snapshot of 2021 carries today's field order, and a field added
+  1453	to a model last week appears in every earlier month.
+  1454	
+  1455	That is a known inaccuracy, taken deliberately: a field list that sorts by a
+  1456	slightly wrong order is more useful than one that cannot be sorted at all when
+  1457	queried back in time, which is the case this mapping exists to serve. It resolves
+  1458	itself if Ardoq ever adds the mirror.
+  1459	
+  1460	CDC is the only path that keeps an order current. A reorder is seen there or not at
+  1461	all.
+  1462	
+  1463	## Org-Triples And Relationship Constraints
+  1464	
+  1465	`org_triple` or `org_triples` defines allowed source/reference/target type patterns by name:
+  1466	
+  1467	```text
+  1468	sourceType    exact component type name
+  1469	referenceType exact reference type name
+  1470	targetType    exact component type name
+  1471	```
+  1472	
+  1473	The syncer requires at least one reference type row whose `name` exactly matches `org_triple.referenceType`. It then emits **one SHACL node shape per reference type name**, holding a disjunction over the declared source types with each source's allowed targets in the same arm. There is no `rdfs:domain`/`rdfs:range`. `sourceType` and `targetType` are mapped to common component name classes, not concrete component type IDs.
+  1474	
+  1475	The rows for a reference type are not a product: given `Person → Person`, `Person → Organization` and `Organization → Organization`, the combination `Organization → Person` must stay disallowed. One property shape per row cannot say that, because several property shapes on a node shape are read conjunctively — those three rows would demand every value be a Person *and* an Organization at once. Hence the disjunction.
+  1476	
+  1477	Example source rows:
+  1478	
+  1479	```text
+  1480	org_triple.sourceType    Person         Person          Organization
+  1481	org_triple.referenceType is related to  is related to   is related to
+  1482	org_triple.targetType    Person         Organization    Organization
+  1483	reference_type.name      is related to
+  1484	```
+  1485	
+  1486	Example triples:
+  1487	
+  1488	```turtle
+  1489	aqShape:constraint a sh:NodeShape ;
+  1490	  sh:targetSubjectsOf aqRefType:isRelatedTo ;
+  1491	  sh:or ( aqShape:armPerson aqShape:armOrganization ) .
+  1492	
+  1493	aqShape:armPerson a sh:NodeShape ;
+  1494	  sh:class aqCompType:Person ;
+  1495	  sh:property aqShape:armPersonProp .
+  1496	aqShape:armPersonProp a sh:PropertyShape ;
+  1497	  sh:path aqRefType:isRelatedTo ;
+  1498	  sh:or ( aqShape:classOrganization aqShape:classPerson ) .
+  1499	
+  1500	aqShape:armOrganization a sh:NodeShape ;
+  1501	  sh:class aqCompType:Organization ;
+  1502	  sh:property aqShape:armOrganizationProp .
+  1503	aqShape:armOrganizationProp a sh:PropertyShape ;
+  1504	  sh:path aqRefType:isRelatedTo ;
+  1505	  sh:class aqCompType:Organization .          # one target needs no inner sh:or
+  1506	
+  1507	aqShape:classPerson       a sh:NodeShape ; sh:class aqCompType:Person .
+  1508	aqShape:classOrganization a sh:NodeShape ; sh:class aqCompType:Organization .
+  1509	```
+  1510	
+  1511	The shape is selected by *use of the property* rather than by the subject's class, so a source type with no `org_triple` row for this reference type matches no arm and is reported: `org_triple` is an allow-list.
+  1512	
+  1513	The shapes are written at the name level on both sides, and instance data carries neither the common property nor the common class. `sh:class` bridges that on its own — SHACL defines "SHACL instance" as `rdf:type` plus `rdfs:subClassOf` superclasses — but `sh:path` does not, because a predicate path is matched by term equality with no `rdfs:subPropertyOf` closure. **Validation therefore requires RDFS inference over the data graph**; without it these shapes select nothing and report `conforms: true` over a graph that does contain violations. See MODEL_LEVEL_SYNC.md for the full note.
+  1514	
+  1515	A change to one `org_triple` row is written as the difference between the reference type's whole constraint before and after, so a delete removes only what the smaller set no longer reaches. Withdrawing the last target of a source drops that source's arm; withdrawing the last row retracts the constraint shape.
+  1516	
+  1517	## Instance Reference Triples
+  1518	
+  1519	Instance-level references continue to use the concrete reference type `_id` as the predicate. The common reference property is for model-level inheritance and constraints.
+  1520	
+  1521	Each reference emits a forward triple plus a full RDF reification. The reification subject is `reference-statements/<sha1>`, where `<sha1>` is `sha1(source + "\x00" + target + "\x00" + referenceType)`. The reified statement carries `rdf:type rdf:Statement`, `rdf:subject`, `rdf:predicate`, and `rdf:object`. When the reference row has an `_id`, it is attached to the statement as a `field-types/id` literal, and any extra reference properties are attached to the same statement subject.
+  1522	
+  1523	Example reference row:
+  1524	
+  1525	```text
+  1526	reference._id     ref-deploy-001
+  1527	reference.source  app-001
+  1528	reference.target  srv-001
+  1529	reference.type    deployed_on
+  1530	```
+  1531	
+  1532	Example instance and reification triples, where `SHA1` stands for the hex digest described above:
+  1533	
+  1534	```turtle
+  1535	aqComponent:app-001 aqRefType:deployed_on aqComponent:srv-001 .
+  1536	
+  1537	aqRefStatement:SHA1 a rdf:Statement ;
+  1538	  rdf:subject aqComponent:app-001 ;
+  1539	  rdf:predicate aqRefType:deployed_on ;
+  1540	  rdf:object aqComponent:srv-001 ;
+  1541	  aqFieldType:id "ref-deploy-001" .
+  1542	```
+  1543	
+  1544	Here `deployed_on` is the `reference_type._id`.
+  1545	
+  1546	## Tags
+  1547	
+  1548	Each `tag` row becomes an `ardoq:Tag` individual and a set of `hasTag` edges from the components and references it is attached to. The tag IRI is `http://data.ardoq.com/instances/tags/<tag._id>`. `Tag` (`http://data.ardoq.com/meta-model/Tag`) is declared in the built-in schema as an `owl:Class`/`rdfs:Class`, and `hasTag` (`http://data.ardoq.com/model/common/hasTag`) as an `owl:ObjectProperty` with `rdfs:range` `Tag` and no `rdfs:domain` (its subject may be a component or a reference).
+  1549	
+  1550	A tag carries `common/name` and `common/description`, the same two predicates a component and a workspace carry. A tag is an instance-level individual, not a model construct: `rdfs:label` and `rdfs:comment` belong on the things that describe the model — the classes, the concrete component and reference types, the field-type properties — and a query asking what an individual is called should not have to know which of two spellings that individual happens to use.
+  1551	
+  1552	Because any component or reference may be tagged, the built-in schema does not constrain `hasTag`'s domain; instead it emits a single subject-agnostic SHACL range guard: a `sh:NodeShape` with `sh:targetObjectsOf hasTag` and `sh:class Tag`, so every tagged subject (component or reference reifier alike) is validated to point at a `Tag`. The shape IRI is `uuidv5("http://data.ardoq.com/model/shapes/target-objects-of:" + hasTag)` under `shapes/`.
+  1553	
+  1554	In Postgres the membership lives on the tag row as the `components` and `references` id arrays (there is no join table), so:
+  1555	
+  1556	- A tagged component gets `<component> hasTag <tag>`.
+  1557	- A tagged reference gets `<reference-statements/<sha1>> hasTag <tag>` — the edge is attached to the reference's reifier (the edge instance that also carries reference properties), not to a plain triple.
+  1558	- On a tag update the syncer diffs the before/after `components`/`references` arrays and emits only the added/removed `hasTag` edges (plus any name/description change).
+  1559	- A component or reference delete already retracts its own `hasTag` edges via `del_all_about` on the entity subject, so those edges do not depend on a subsequent tag-row update to be cleaned up.
+  1560	
+  1561	Example tag row:
+  1562	
+  1563	```text
+  1564	tag._id         tag-critical
+  1565	tag.name        Critical
+  1566	tag.description Business critical assets
+  1567	tag.components  ["app-001", "app-002"]
+  1568	tag.references  ["ref-deploy-001"]
+  1569	```
+  1570	
+  1571	Example tag triples:
+  1572	
+  1573	```turtle
+  1574	aqTag:tag-critical a aqModel:Tag ;
+  1575	  aqCommon:name        "Critical" ;
+  1576	  aqCommon:description "Business critical assets" .
+  1577	
+  1578	aqComponent:app-001 aqCommon:hasTag aqTag:tag-critical .
+  1579	
+  1580	aqRefStatement:SHA1 aqCommon:hasTag aqTag:tag-critical .
+  1581	```
+  1582	

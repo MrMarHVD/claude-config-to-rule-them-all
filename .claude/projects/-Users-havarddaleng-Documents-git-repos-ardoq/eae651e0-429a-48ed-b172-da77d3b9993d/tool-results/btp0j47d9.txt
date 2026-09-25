@@ -1,0 +1,527 @@
+     1	package syncer
+     2	
+     3	import (
+     4		"net/url"
+     5		"strings"
+     6	
+     7		"github.com/google/uuid"
+     8	)
+     9	
+    10	// This file is the single declaration of every IRI the syncer owns, and of the
+    11	// rules that mint them. It is exported because these IRIs are the contract the
+    12	// graph is read through: anything asserting what the syncer produces — tests in
+    13	// other packages included — must derive from here rather than restate the
+    14	// strings, or a rename moves the syncer and leaves the assertions agreeing with
+    15	// themselves about the old vocabulary.
+    16	//
+    17	// Well-known IRIs from RDF, RDFS, OWL, SHACL and XSD are not here. They are not
+    18	// ours to rename, so restating them cannot drift.
+    19	//
+    20	// The unexported spellings below the exported ones are what the rest of the
+    21	// package uses; they exist so this move did not have to touch several hundred
+    22	// call sites.
+    23	
+    24	// The three levels of the vocabulary. See the "RDF namespaces" section of the
+    25	// README for what belongs in each.
+    26	const (
+    27		// MetaModelNamespace holds the terms that describe a model construct: the
+    28		// classes saying what kind of thing it is, and the two predicates carrying its
+    29		// machine-readable identity. No SHACL shape targets them.
+    30		MetaModelNamespace = "http://data.ardoq.com/meta-model/"
+    31	
+    32		// ModelNamespace holds the model itself: the types, field types, shared
+    33		// predicates and the shapes that constrain them.
+    34		ModelNamespace = "http://data.ardoq.com/model/"
+    35	
+    36		// InstancesNamespace holds the individuals a customer created.
+    37		InstancesNamespace = "http://data.ardoq.com/instances/"
+    38	)
+    39	
+    40	// Namespaces within the model and instance levels.
+    41	const (
+    42		ComponentTypeNamespace = ModelNamespace + "component-types/"
+    43		ReferenceTypeNamespace = ModelNamespace + "reference-types/"
+    44		FieldTypeNamespace     = ModelNamespace + "field-types/"
+    45		CommonNamespace        = ModelNamespace + "common/"
+    46		ShapeNamespace         = ModelNamespace + "shapes/"
+    47	
+    48		// ModelFieldNamespace holds a field as it appears in one model, keyed on
+    49		// field_id_by_model._id. See ModelFieldClassIRI for why that is a resource of
+    50		// its own rather than more predicates on the field type.
+    51		ModelFieldNamespace = ModelNamespace + "model-fields/"
+    52	
+    53		ComponentNamespace = InstancesNamespace + "components/"
+    54		ReferenceNamespace = InstancesNamespace + "references/"
+    55		TagNamespace       = InstancesNamespace + "tags/"
+    56		WorkspaceNamespace = InstancesNamespace + "workspaces/"
+    57		UserNamespace      = InstancesNamespace + "users/"
+    58	)
+    59	
+    60	// LiveGraphIRI is the named graph holding the current view.
+    61	const LiveGraphIRI = "http://ardoq.sync/default"
+    62	
+    63	// The meta level: what kind of thing a model construct is.
+    64	const (
+    65		ComponentClassIRI     = MetaModelNamespace + "Component"
+    66		ReferenceClassIRI     = MetaModelNamespace + "Reference"
+    67		ComponentTypeClassIRI = MetaModelNamespace + "ComponentType"
+    68		ReferenceTypeClassIRI = MetaModelNamespace + "ReferenceType"
+    69		TagClassIRI           = MetaModelNamespace + "Tag"
+    70	
+    71		// Workspace classifies the containers components and references live in. It
+    72		// sits at the meta level next to Tag for the same reason: its members are
+    73		// individuals a customer created, not model constructs, so no concrete type
+    74		// row mints it and no shape targets it.
+    75		WorkspaceClassIRI = MetaModelNamespace + "Workspace"
+    76	
+    77		// FieldType classifies a field property the way ComponentType classifies a
+    78		// class. CustomFieldType and BuiltInFieldType split those into the ones
+    79		// defined in global_field and the ones in Ardoq's own vocabulary. Field is the
+    80		// super-property every field property sits under, so "every field of this
+    81		// thing" is one traversal.
+    82		FieldTypeClassIRI        = MetaModelNamespace + "FieldType"
+    83		CustomFieldTypeClassIRI  = MetaModelNamespace + "CustomFieldType"
+    84		BuiltInFieldTypeClassIRI = MetaModelNamespace + "BuiltInFieldType"
+    85		FieldClassIRI            = MetaModelNamespace + "Field"
+    86	
+    87		// ModelField classifies a field as it appears in one model: the
+    88		// field_id_by_model row joining a global_field to a model, and the thing
+    89		// Ardoq's own API calls a field.
+    90		//
+    91		// It is a resource rather than more predicates on the field type because the
+    92		// facts it carries are per model, not per field. A global_field is org-wide and
+    93		// its property IRI is minted from global_field._id, but its position in the
+    94		// field list is not: `review_date` sits in twenty-five models with orders 0
+    95		// through 19. Writing that onto the field type would make aqModel:order
+    96		// multi-valued with nothing to say which model each value belongs to, which is
+    97		// no use to the consumer that asked for it.
+    98		//
+    99		// It also carries the id Ardoq's API returns. `field_view`, which is what
+   100		// `advanced-search-fields` reads, selects field_id_by_model._id as the field's
+   101		// `_id` — never global_field._id, which it does not equal in any row of any org
+   102		// schema. A consumer holding a field id from Ardoq can only match it here.
+   103		ModelFieldClassIRI = MetaModelNamespace + "ModelField"
+   104	)
+   105	
+   106	// The machine-readable identity of a model construct: the id it is keyed on and,
+   107	// where the two differ, the internal name it is known by.
+   108	//
+   109	// They sit at the meta level, beside the classes above, because their subjects are
+   110	// model constructs — a component type, a reference type, a field type — rather than
+   111	// the individuals a customer created. An individual carries the same two facts under
+   112	// CommonIDIRI and CommonNameIRI, which are built-in *fields*: a component really does
+   113	// have a field Ardoq calls "Ardoq OID", and advanced search filters on it. Describing
+   114	// a field type with those would have said a field type has fields, and would have left
+   115	// `?s common/id ?id` returning classes and individuals jumbled together.
+   116	//
+   117	// So the split is the level, not the meaning: MetaModelIDIRI answers "which model
+   118	// constructs are there", CommonIDIRI answers "which things are there".
+   119	const (
+   120		MetaModelIDIRI   = MetaModelNamespace + "id"
+   121		MetaModelNameIRI = MetaModelNamespace + "name"
+   122	)
+   123	
+   124	// The legacy identifiers a concrete type carries so that Ardoq's pre-GraphLake
+   125	// code can find its way from an entity to the model and type ids it already
+   126	// holds. A component row carries `typeId` and `model`; a reference row carries
+   127	// `type` and `model`; neither is resolvable without the type row, so the type
+   128	// publishes both and one property path answers it:
+   129	//
+   130	//	?component rdf:type/aqModel:modelId         ?modelId .
+   131	//	?component rdf:type/aqModel:componentTypeId ?componentTypeId .
+   132	//
+   133	// This is a compatibility bridge. Code written against GraphLake should use the
+   134	// type IRI, which is minted from the `_id` and is unique on its own; these two are
+   135	// only meaningful as a pair, because the model-local id repeats across models.
+   136	//
+   137	// The model is not a resource. Nothing in Ardoq's model rows is worth a node here
+   138	// beyond the id, and minting one would put a class in the graph that no query asked
+   139	// for.
+   140	//
+   141	// MetaModelComponentTypeIDIRI carries `component_type.id` and
+   142	// MetaModelReferenceTypeIDIRI carries `reference_type.id` — the model-local ids,
+   143	// not the `_id`. Note that this is the opposite of what those two words mean in
+   144	// Ardoq's own schema, where a `componentTypeId` column matches `component_type._id`
+   145	// (see sourceColumnTypesByTable and the field-constraint join tables). The names
+   146	// here are the ones the consumer asked for; the `_id` is on MetaModelIDIRI.
+   147	const (
+   148		MetaModelModelIDIRI         = MetaModelNamespace + "modelId"
+   149		MetaModelComponentTypeIDIRI = MetaModelNamespace + "componentTypeId"
+   150		MetaModelReferenceTypeIDIRI = MetaModelNamespace + "referenceTypeId"
+   151	)
+   152	
+   153	// What a field is, beyond its identity: the value type Ardoq gives it, how it is
+   154	// formatted, where it sits in a model's field list, and which field type a model
+   155	// field is an appearance of. Advanced search reads all four.
+   156	const (
+   157		// MetaModelFieldTypeIRI is Ardoq's own name for a field's value type — "Number",
+   158		// "SelectMultipleList", "Url" — carried verbatim from global_field.type.
+   159		//
+   160		// It is published alongside the SHACL sh:datatype rather than instead of it,
+   161		// because the two answer different questions and the datatype cannot answer this
+   162		// one: fieldValueRange collapses Text, TextArea, List, SelectMultipleList, Email,
+   163		// User and File all onto xsd:string. A consumer choosing an editor or a filter
+   164		// for a field needs the distinction the range throws away.
+   165		MetaModelFieldTypeIRI = MetaModelNamespace + "fieldType"
+   166	
+   167		// MetaModelNumberFormatOptionsIRI carries global_field.numberFormatOptions as one
+   168		// string of JSON.
+   169		//
+   170		// One literal rather than a predicate per option: the option set is Ardoq's and
+   171		// this repo does not own it, so decomposing it would invent vocabulary here and
+   172		// silently drop whatever Ardoq adds next. The lexical form is canonicalised —
+   173		// see canonicalJSONObject — because the snapshot path reads jsonb as Postgres
+   174		// serialises it and the CDC path reads it as a decoded map, and two spellings of
+   175		// the same object would churn a delete/insert on every update that did not
+   176		// change it.
+   177		MetaModelNumberFormatOptionsIRI = MetaModelNamespace + "numberFormatOptions"
+   178	
+   179		// MetaModelOrderIRI is a field's position in one model's field list,
+   180		// field_id_by_model._order. Its subject is a ModelField, never a field type.
+   181		MetaModelOrderIRI = MetaModelNamespace + "order"
+   182	
+   183		// MetaModelFieldIRI links a ModelField to the field type it is an appearance of.
+   184		//
+   185		// Not "fieldType", which is taken by the value type above. The two would be a
+   186		// word apart and mean quite different things, and this one is the edge.
+   187		MetaModelFieldIRI = MetaModelNamespace + "field"
+   188	)
+   189	
+   190	// How a component type is drawn: the four style values on component_type, which
+   191	// are the defaults every component of that type inherits unless it overrides
+   192	// them. The per-component override is the CommonColorIRI group below.
+   193	//
+   194	// They are at the meta level rather than under common/ because their subject is a
+   195	// model construct, not one of the individuals common/ describes — the same split
+   196	// that puts MetaModelIDIRI on a type and CommonIDIRI on a component. A component
+   197	// type already carries rdfs:label and rdfs:comment where a component carries
+   198	// common/name and common/description, and this follows that.
+   199	//
+   200	// Keeping the two levels apart is also what makes an override recoverable. One
+   201	// shared predicate would say a component is #ff0000 and its type is #ff0000 with
+   202	// nothing to distinguish "set on this component" from "inherited", and the
+   203	// consumer this exists for needs to know which it is looking at. Resolving the
+   204	// effective value is one COALESCE over the two:
+   205	//
+   206	//	OPTIONAL { ?c aqCommon:icon ?own }
+   207	//	OPTIONAL { ?c rdf:type/aqModel:icon ?default }
+   208	//	BIND(COALESCE(?own, ?default) AS ?icon)
+   209	//
+   210	// Their subject is the concrete component type, never the name-level class: that
+   211	// class is shared by every model with a type of that name, so a colour on it
+   212	// would be multi-valued with nothing to say whose it is. Same reason
+   213	// MetaModelModelIDIRI is concrete-only.
+   214	//
+   215	// MetaModelShapeIRI is the one to read twice: "shape" here is the renderer's
+   216	// outline for a box — `item`, `bpmn-user`, `archimate-rect-interface` — and has
+   217	// nothing to do with the SHACL shapes under ShapeNamespace. The word is Ardoq's
+   218	// column name and is kept, because a built-in's local name is its source column.
+   219	const (
+   220		MetaModelColorIRI = MetaModelNamespace + "color"
+   221		MetaModelIconIRI  = MetaModelNamespace + "icon"
+   222		MetaModelImageIRI = MetaModelNamespace + "image"
+   223		MetaModelShapeIRI = MetaModelNamespace + "shape"
+   224	)
+   225	
+   226	// The built-in predicates both components and references carry. The edit pair is
+   227	// asymmetric on purpose: the time is CommonLastUpdatedIRI and the user is
+   228	// CommonLastModifiedByIRI, because that is how the rest of the platform names
+   229	// them. Advanced search filters on the user under "last modified by", so a
+   230	// predicate named for the timestamp instead would answer nothing.
+   231	const (
+   232		CommonIDIRI             = CommonNamespace + "id"
+   233		CommonNameIRI           = CommonNamespace + "name"
+   234		CommonDescriptionIRI    = CommonNamespace + "description"
+   235		CommonParentIRI         = CommonNamespace + "parent"
+   236		CommonRootWorkspaceIRI  = CommonNamespace + "rootWorkspace"
+   237		CommonCreatedIRI        = CommonNamespace + "created"
+   238		CommonCreatedByIRI      = CommonNamespace + "createdBy"
+   239		CommonLastUpdatedIRI    = CommonNamespace + "lastUpdated"
+   240		CommonLastModifiedByIRI = CommonNamespace + "lastModifiedBy"
+   241		CommonHasTagIRI         = CommonNamespace + "hasTag"
+   242	
+   243		// CommonWorkspaceIRI is the edge to the workspace resource. It is a separate
+   244		// IRI from CommonRootWorkspaceIRI, which keeps the same value as a literal for
+   245		// gremlin parity: OWL 2 DL keeps data and object properties disjoint, so one
+   246		// IRI cannot be both.
+   247		CommonWorkspaceIRI = CommonNamespace + "workspace"
+   248	
+   249		// CommonComponentKeyIRI carries component.componentKey: the short, human-facing
+   250		// identifier Ardoq mints per component ("ACDMPL-1"), which is what a person
+   251		// quotes when they mean one component and what advanced search filters on.
+   252		//
+   253		// The local name is the source column name, as it is for every other built-in
+   254		// here, and it says "componentKey" rather than "key" so the predicate names
+   255		// what it identifies instead of reading as a generic map key. The search
+   256		// translator in ardoq-api aligns to this name.
+   257		CommonComponentKeyIRI = CommonNamespace + "componentKey"
+   258	
+   259		// How one component is drawn, where it differs from its type's default: the
+   260		// four style columns on `component`. Components only — a reference row has no
+   261		// style column of its own, and a reference type's styling is a different set of
+   262		// words (line, svgStyle, lineBeginning, lineEnding) that nothing reads yet.
+   263		//
+   264		// Every value is a string and nothing more is claimed about it. A colour is
+   265		// `#af73ff` in some rows and `rgba(3,42,83,1)` in others, an icon is a sprite
+   266		// name, a shape is a renderer key, and an image is a relative Ardoq attachment
+   267		// path — so none of them is xsd:anyURI, and no colour syntax is normalised
+   268		// here. The store carries what Ardoq stored.
+   269		//
+   270		// The type-level default lives on MetaModelColorIRI and friends; these four are
+   271		// the override. A component that overrides nothing carries none of them.
+   272		CommonColorIRI = CommonNamespace + "color"
+   273		CommonIconIRI  = CommonNamespace + "icon"
+   274		CommonImageIRI = CommonNamespace + "image"
+   275		CommonShapeIRI = CommonNamespace + "shape"
+   276	
+   277		// UserClassIRI is the class of the people who authored Ardoq rows. It sits
+   278		// under common/ rather than at the meta level with Component and Tag: the
+   279		// other meta classes classify model constructs, and this one does not.
+   280		//
+   281		// A User carries its id and its display name, read from `user_account` in the
+   282		// Ardoq settings database — an org schema has no user table of its own. The
+   283		// name is what makes the resource worth having: the audit column already
+   284		// carried the id.
+   285		UserClassIRI = CommonNamespace + "User"
+   286	)
+   287	
+   288	// ComponentIRI is a component instance, keyed on component._id.
+   289	func ComponentIRI(id string) string { return ComponentNamespace + id }
+   290	
+   291	// ReferenceIRI is a reference's RDF 1.2 reifier, keyed on reference._id. The id
+   292	// makes each edge instance a stable, distinct reifier; distinct reifiers of the
+   293	// same triple are parallel edges.
+   294	func ReferenceIRI(id string) string { return ReferenceNamespace + id }
+   295	
+   296	// TagIRI is a tag instance, keyed on tag._id.
+   297	func TagIRI(id string) string { return TagNamespace + id }
+   298	
+   299	// WorkspaceIRI is a workspace instance, keyed on workspace._id.
+   300	func WorkspaceIRI(id string) string { return WorkspaceNamespace + id }
+   301	
+   302	// UserIRI is a user instance, keyed on user_account._id — which is also the value
+   303	// an audit column carries, so an author edge and the directory mint the same IRI.
+   304	//
+   305	// The id is percent-escaped, which the component and reference IRIs do not bother
+   306	// with. Their ids are foreign keys within one schema and are always ObjectId-shaped;
+   307	// this one is minted from an audit column as often as from the user row, and an
+   308	// audit column is an unconstrained string that nothing validates. One stray space or
+   309	// angle bracket in it would produce a malformed IRI and fail the whole update — the
+   310	// same failure mode the field-value datatype fallback exists to avoid. FieldTypeIRI
+   311	// escapes for the same reason.
+   312	func UserIRI(id string) string {
+   313		return UserNamespace + url.PathEscape(strings.TrimSpace(id))
+   314	}
+   315	
+   316	// ComponentTypeIRI is a concrete component type, keyed on component_type._id.
+   317	func ComponentTypeIRI(id string) string { return ComponentTypeNamespace + id }
+   318	
+   319	// ReferenceTypeIRI is a concrete reference type, keyed on reference_type._id. It
+   320	// is punned: the same IRI is both the class of a reference's reifier and the
+   321	// predicate of its plain edge.
+   322	func ReferenceTypeIRI(id string) string { return ReferenceTypeNamespace + id }
+   323	
+   324	// FieldTypeIRI is a field-type property, minted from global_field._id. Field
+   325	// identity is the row id, not the field name: names are mutable and labels are
+   326	// not identifier-shaped.
+   327	func FieldTypeIRI(id string) string {
+   328		return FieldTypeNamespace + url.PathEscape(strings.TrimSpace(id))
+   329	}
+   330	
+   331	// ModelFieldIRI is a field as it appears in one model, keyed on
+   332	// field_id_by_model._id — the id Ardoq's own API returns for a field.
+   333	func ModelFieldIRI(id string) string {
+   334		return ModelFieldNamespace + url.PathEscape(strings.TrimSpace(id))
+   335	}
+   336	
+   337	// ComponentTypeNameClassIRI is the name-level class every concrete component type
+   338	// of the same name subclasses, so one query spans the models a name appears in.
+   339	func ComponentTypeNameClassIRI(name string) string {
+   340		return ComponentTypeNamespace + mintUUID(ComponentTypeNamespace+"name:"+name)
+   341	}
+   342	
+   343	// CommonReferenceTypeIRI is the name-level reference type, the edge counterpart
+   344	// of ComponentTypeNameClassIRI.
+   345	func CommonReferenceTypeIRI(name string) string {
+   346		return ReferenceTypeNamespace + mintUUID(ReferenceTypeNamespace+"name:"+name)
+   347	}
+   348	
+   349	// NodeShapeIRI is the SHACL NodeShape targeting a class.
+   350	func NodeShapeIRI(targetClass string) string {
+   351		return ShapeNamespace + mintUUID(ShapeNamespace+"node:"+targetClass)
+   352	}
+   353	
+   354	// DataPropertyShapeIRI is the SHACL PropertyShape constraining a literal-valued
+   355	// property.
+   356	func DataPropertyShapeIRI(path string) string {
+   357		return ShapeNamespace + mintUUID(ShapeNamespace+"data-property:"+path)
+   358	}
+   359	
+   360	// ObjectPropertyShapeIRI is the SHACL PropertyShape constraining one class's
+   361	// property to another class.
+   362	func ObjectPropertyShapeIRI(sourceClass, path, targetClass string) string {
+   363		return ShapeNamespace + mintUUID(ShapeNamespace+"object-property:"+sourceClass+"\x00"+path+"\x00"+targetClass)
+   364	}
+   365	
+   366	// TargetObjectsOfShapeIRI is the SHACL NodeShape targeting every object of a
+   367	// property (sh:targetObjectsOf).
+   368	func TargetObjectsOfShapeIRI(property string) string {
+   369		return ShapeNamespace + mintUUID(ShapeNamespace+"target-objects-of:"+property)
+   370	}
+   371	
+   372	// The four IRIs below name the parts of one reference type's org-triple
+   373	// constraint. Its shape is a two-level disjunction — which source classes may use
+   374	// the property at all, and per source class which target classes it may point at —
+   375	// because the allowed combinations are not a product. `Person isRelatedTo
+   376	// Organization` and `Organization isRelatedTo Organization` being allowed must not
+   377	// make `Organization isRelatedTo Person` allowed, and only a disjunction that keeps
+   378	// the source and its targets in the same arm says that.
+   379	
+   380	// ReferenceConstraintShapeIRI is the SHACL NodeShape holding one reference
+   381	// property's org-triple constraint. It targets every subject of the property
+   382	// (sh:targetSubjectsOf), so a source class Ardoq never declared matches no arm of
+   383	// the disjunction and is reported rather than passed over.
+   384	func ReferenceConstraintShapeIRI(path string) string {
+   385		return ShapeNamespace + mintUUID(ShapeNamespace+"reference-constraint:"+path)
+   386	}
+   387	
+   388	// ReferenceConstraintBranchIRI is one arm of that outer disjunction: the shape a
+   389	// subject of one declared source class must satisfy.
+   390	func ReferenceConstraintBranchIRI(path, sourceClass string) string {
+   391		return ShapeNamespace + mintUUID(ShapeNamespace+"reference-constraint-branch:"+path+"\x00"+sourceClass)
+   392	}
+   393	
+   394	// ReferenceConstraintBranchPropertyIRI is the property shape inside one arm,
+   395	// constraining that source class's values of the property.
+   396	func ReferenceConstraintBranchPropertyIRI(path, sourceClass string) string {
+   397		return ShapeNamespace + mintUUID(ShapeNamespace+"reference-constraint-branch-property:"+path+"\x00"+sourceClass)
+   398	}
+   399	
+   400	// ClassShapeIRI is a bare NodeShape asserting membership of one class. It carries
+   401	// no target, so it is never a focus node in its own right; it exists only to be an
+   402	// arm of an sh:or, which takes shapes rather than classes.
+   403	func ClassShapeIRI(class string) string {
+   404		return ShapeNamespace + mintUUID(ShapeNamespace+"class-shape:"+class)
+   405	}
+   406	
+   407	// ShapeListCellIRI names one cell of an RDF list of shapes.
+   408	//
+   409	// The cell is keyed on the members from it onwards, not on its position, so the
+   410	// list is a pure function of its contents: rebuilding it from the same set yields
+   411	// the same IRIs, and two lists ending in the same members share those cells. That
+   412	// is what lets a set change be written as a diff — the arms that did not move keep
+   413	// their identity, so the ops that would delete and re-add them cancel out — without
+   414	// the syncer ever reading back what it wrote.
+   415	func ShapeListCellIRI(salt string, remaining []string) string {
+   416		return ShapeNamespace + mintUUID(ShapeNamespace+"list:"+salt+"\x00"+strings.Join(remaining, "\x00"))
+   417	}
+   418	
+   419	// mintUUID derives the deterministic identifier the shape and name-level IRIs are
+   420	// keyed on. The salt is part of the IRI: changing it renames everything minted
+   421	// from it, which is why nothing outside this file may recompute one.
+   422	func mintUUID(salt string) string {
+   423		return uuid.NewSHA1(uuid.NameSpaceURL, []byte(salt)).String()
+   424	}
+   425	
+   426	// The in-package spellings, aliased to the exported vocabulary above.
+   427	const (
+   428		modelBase             = ModelNamespace
+   429		metaModelBase         = MetaModelNamespace
+   430		instancesBase         = InstancesNamespace
+   431		shapeBase             = ShapeNamespace
+   432		componentBase         = ComponentNamespace
+   433		tagBase               = TagNamespace
+   434		workspaceBase         = WorkspaceNamespace
+   435		userBase              = UserNamespace
+   436		componentTypeBase     = ComponentTypeNamespace
+   437		objectReferenceBase   = ReferenceTypeNamespace
+   438		referenceInstanceBase = ReferenceNamespace
+   439		propertyPredicateBase = FieldTypeNamespace
+   440		commonBase            = CommonNamespace
+   441		ardoqLiveGraphIRI     = LiveGraphIRI
+   442	
+   443		componentClass     = ComponentClassIRI
+   444		referenceClass     = ReferenceClassIRI
+   445		componentTypeClass = ComponentTypeClassIRI
+   446		referenceTypeClass = ReferenceTypeClassIRI
+   447		tagClass           = TagClassIRI
+   448		workspaceClass     = WorkspaceClassIRI
+   449		userClass          = UserClassIRI
+   450	
+   451		fieldTypeClass        = FieldTypeClassIRI
+   452		customFieldTypeClass  = CustomFieldTypeClassIRI
+   453		builtInFieldTypeClass = BuiltInFieldTypeClassIRI
+   454		fieldClass            = FieldClassIRI
+   455	
+   456		metaModelID              = MetaModelIDIRI
+   457		metaModelName            = MetaModelNameIRI
+   458		metaModelModelID         = MetaModelModelIDIRI
+   459		metaModelComponentTypeID = MetaModelComponentTypeIDIRI
+   460		metaModelReferenceTypeID = MetaModelReferenceTypeIDIRI
+   461		metaModelColor           = MetaModelColorIRI
+   462		metaModelIcon            = MetaModelIconIRI
+   463		metaModelImage           = MetaModelImageIRI
+   464		metaModelShape           = MetaModelShapeIRI
+   465	
+   466		modelFieldClass              = ModelFieldClassIRI
+   467		modelFieldBase               = ModelFieldNamespace
+   468		metaModelFieldType           = MetaModelFieldTypeIRI
+   469		metaModelNumberFormatOptions = MetaModelNumberFormatOptionsIRI
+   470		metaModelOrder               = MetaModelOrderIRI
+   471		metaModelField               = MetaModelFieldIRI
+   472	
+   473		commonID             = CommonIDIRI
+   474		commonName           = CommonNameIRI
+   475		commonDescription    = CommonDescriptionIRI
+   476		commonParent         = CommonParentIRI
+   477		commonRootWorkspace  = CommonRootWorkspaceIRI
+   478		commonCreated        = CommonCreatedIRI
+   479		commonCreatedBy      = CommonCreatedByIRI
+   480		commonLastUpdated    = CommonLastUpdatedIRI
+   481		commonLastModifiedBy = CommonLastModifiedByIRI
+   482		commonHasTag         = CommonHasTagIRI
+   483		commonWorkspace      = CommonWorkspaceIRI
+   484		commonComponentKey   = CommonComponentKeyIRI
+   485		commonColor          = CommonColorIRI
+   486		commonIcon           = CommonIconIRI
+   487		commonImage          = CommonImageIRI
+   488		commonShape          = CommonShapeIRI
+   489	)
+   490	
+   491	func componentResource(id string) string      { return ComponentIRI(id) }
+   492	func componentTypeResource(typ string) string { return ComponentTypeIRI(typ) }
+   493	func tagResource(id string) string            { return TagIRI(id) }
+   494	func workspaceResource(id string) string      { return WorkspaceIRI(id) }
+   495	func userResource(id string) string           { return UserIRI(id) }
+   496	func referenceTypeResource(typ string) string { return ReferenceTypeIRI(typ) }
+   497	func predicateResource(typ string) string     { return ReferenceTypeIRI(typ) }
+   498	func fieldTypeResource(id string) string      { return FieldTypeIRI(id) }
+   499	func modelFieldResource(id string) string     { return ModelFieldIRI(id) }
+   500	
+   501	// referenceReifierResource is the IRI of the RDF 1.2 reifier for a reference.
+   502	func referenceReifierResource(id string) string { return ReferenceIRI(id) }
+   503	
+   504	func componentTypeNameClassResource(name string) string { return ComponentTypeNameClassIRI(name) }
+   505	func commonReferenceTypeResource(name string) string    { return CommonReferenceTypeIRI(name) }
+   506	func nodeShapeResource(targetClass string) string       { return NodeShapeIRI(targetClass) }
+   507	func dataPropertyShapeResource(path string) string      { return DataPropertyShapeIRI(path) }
+   508	func targetObjectsOfShapeResource(property string) string {
+   509		return TargetObjectsOfShapeIRI(property)
+   510	}
+   511	
+   512	func objectPropertyShapeResource(sourceClass, path, targetClass string) string {
+   513		return ObjectPropertyShapeIRI(sourceClass, path, targetClass)
+   514	}
+   515	
+   516	func referenceConstraintShapeResource(path string) string { return ReferenceConstraintShapeIRI(path) }
+   517	func referenceConstraintBranchResource(path, sourceClass string) string {
+   518		return ReferenceConstraintBranchIRI(path, sourceClass)
+   519	}
+   520	
+   521	func referenceConstraintBranchPropertyResource(path, sourceClass string) string {
+   522		return ReferenceConstraintBranchPropertyIRI(path, sourceClass)
+   523	}
+   524	func classShapeResource(class string) string { return ClassShapeIRI(class) }
+   525	func shapeListCellResource(salt string, remaining []string) string {
+   526		return ShapeListCellIRI(salt, remaining)
+   527	}

@@ -1,0 +1,182 @@
+This page describes the system we are building to give LLM agents a formal understanding of Ardoq metamodels and customer data. It is a starting point for discussion, not a finished plan.
+
+Initial page authored via Claude.
+
+Overview and Background
+Agents work dramatically better when they are given an ontology describing the data they are reasoning about. That observation is the motivation for everything below.
+
+We produce a System Ontology two ways: by extracting it from an Ardoq metamodel, and by generating it from a system's written documentation.
+
+That ontology then drives three downstream capabilities: data quality analysis, query generation, and (planned) EA modeling recommendations.
+
+Ontology extraction and generation are done. Data quality analysis and query generation exist as working POCs. Reporting and the EA Modeling Analyzer have not started.
+
+Longer term, ontologies flow back into Ardoq to improve metamodels. That work is deliberately paused pending the GraphLake storage migration.
+
+Why Ontologies
+Two independent reasons, both worth stating explicitly because they appeal to different audiences.
+
+Agents need to be told what the data means. An agent handed a raw Ardoq workspace sees component types and reference types with no semantics attached. Handed an ontology, it sees classes, relationships, cardinalities, domains and ranges — and, importantly, intent. In our work so far this has proven to be a highly effective way to communicate both data structure and intent to an agent. Better grounding produces better queries, fewer hallucinated relationships, and analysis that reflects what the customer actually modelled.
+
+Ontologies are a more capable modeling language than what Ardoq has today. Ardoq's current metamodel capabilities are deliberately simple — notably, there is no inheritance. OWL gives us subclassing, property hierarchies, disjointness, cardinality constraints, and a well-understood body of tooling and theory. As Ardoq's storage layer moves to RDF (see GraphLake), expressing EA metamodels as OWL becomes a natural fit rather than a translation exercise.
+
+The second reason is why this work matters beyond the immediate agent use cases: the same artifact that makes agents smarter today is the artifact that makes the metamodel richer tomorrow.
+
+The workflow at a glance
+Ontology Workflows.png
+Reading the diagram left to right:
+
+Two sources feed one artifact. An existing Ardoq metamodel (top left) and a corpus of system documentation (bottom left) are each converted into ontology form and consolidated into the System Ontology.
+
+The System Ontology is the hub. Everything downstream reads from it. It is also fed back in as context to the agents in the Data Quality Analyzer and Query Generator (the forward path along the top of the diagram), so those agents reason against the full model rather than a fragment.
+
+Two consumers. The Data Quality Analyzer → Query Generator → Report Generator chain finds and reports problems in customer data. The EA Modeling Analyzer, running directly off the ontology, produces recommendations about the model itself rather than the data in it.
+
+Component Status
+Component
+
+Status
+
+Notes
+
+Ontology Extractor
+
+✅ Complete
+
+Reads Ardoq metamodels via the Ontology API
+
+Ontology Generator
+
+✅ Complete
+
+Curator/Ontologist loop over documentation
+
+Data Quality Analyzer
+
+🟩 Partially complete
+
+POC code, established prompts, some manual evaluation, generated outputs
+
+Query Generator
+
+🟩 Partially complete
+
+POC code, established prompts, generated outputs
+
+Report Generator
+
+🟩 Testing
+
+—
+
+EA Modeling Analyzer
+
+❌ Not started
+
+—
+
+Legend: ✅ Complete · 🟩 Partially complete · ❌ Not started
+
+Components in Detail
+Ontology Extractor — complete
+Pulls an existing metamodel out of the Ardoq application through the Ontology API and emits it as an ontology. This is the fast path: where a customer has already invested in a metamodel, we can lift it directly with no interpretation step.
+
+What it gives us is a faithful reflection of what is modelled. What it cannot give us is anything the customer knows but never encoded. This is what the Ontology Generator is for.
+
+Ontology Generator — complete
+Takes a corpus of system documentation (PDFs and similar) and builds an ontology from it using a two-agent loop:
+
+Ontologist — proposes ontology structure from the source material.
+
+Curator — reviews, challenges and refines the Ontologist's output, feeding corrections back around the loop.
+
+This matters because documentation routinely contains constraints and goals that are not reflected in any metamodel: "every service must have a named owner", "these two systems must not exchange PII", "we are decommissioning this platform by Q3". Those statements are exactly the material a data quality check needs, and they exist only in prose. The Generator is how we get them into machine-usable form.
+
+The Generator can also take the extracted ontology as input, so documentation-derived knowledge can be layered onto a metamodel-derived skeleton rather than built from nothing.
+
+System Ontology — the hub
+The consolidated artifact. Everything downstream reads it; nothing downstream talks to Ardoq or the documentation directly. Keeping a single, well-defined artifact in the middle is what lets us add consumers (like the EA Modeling Analyzer) without touching the producers.
+
+Data Quality Analyzer — partially complete (POC)
+Finds smells — patterns in the data that suggest a modeling or data-hygiene problem — and describes them in enough detail that they can be turned into executable checks.
+
+Category Analyst reads the System Ontology and identifies candidate smell categories relevant to this particular model. Categories are derived from the ontology rather than drawn from a fixed list, so the checks are specific to the customer's model.
+
+Each category is then handed to its own Curator/Ontologist pair, which works the category up into a concrete Smell Description grounded in the actual classes and properties of the ontology.
+
+Categories are processed in parallel, and each pair receives the full System Ontology as context.
+
+Current state: POC code, established prompts, generated outputs, and some manual evaluation of those outputs. The gap is in the ontologist loop, which is currently a single-shot agent, and in systematic evaluation — see open questions.
+
+Query Generator — partially complete (POC)
+Takes each Smell Description and, via a Query Conversion agent, produces an executable query that detects instances of that smell in the customer's data. The System Ontology is again supplied as context so the generated query uses real type and property names.
+
+Current state: POC code, established prompts, generated outputs. Generated queries are currently Gremlin only.
+
+Report Generator — testing
+Collects the results of the generated queries and turns them into reports for a human audience. Building reports is available as a Python API, and executed via the AI wrapper on the report APIs in ardoq-api.
+
+Current state: AI wrapper on the report APIs is merged into ardoq-api. The Python code is being tested.
+
+Dashboard Generator — not started
+Automates creating a Dashboard using a set of reports created by the Report Generator. Building Dashboards will require an AI wrapper on the dashboard APIs in ardoq-api.
+
+EA Modeling Analyzer — not started
+The other consumer of the System Ontology, and a different kind of output. Where the data quality chain asks "is the data wrong?", the Metamodel Analyst asks "is the model wrong?" — comparing the ontology against what good enterprise architecture modeling looks like and producing metamodel recommendations.
+
+This is the component that most directly connects to the write-back path below: a recommendation about the metamodel is only fully useful if there is a way to act on it inside Ardoq.
+
+GraphLake and the write-back path
+Today the flow is one-directional: Ardoq → ontology → analysis. We expect to close the loop, folding descriptive ontologies back into the Ardoq application to update a metamodel.
+
+Planning for this is currently paused, on purpose. Ardoq's storage layer is moving from PostgreSQL to GraphLake, an RDF database. The principals behind GraphLake have recently joined Ardoq, so the database's capabilities can be extended if and when we need them. Designing a write-back mechanism against the storage layer we are about to replace would be wasted effort; designing it against a native RDF store is substantially simpler, since the ontology and the stored data share a representation. The descriptive ontology may not completely match the internal modeling ontology for practical reasons, but we plan to provide automated mapping mechanisms to account for differences.
+
+The practical consequence: the more ontology work we do now, the less translation work there is after the migration. The ontologies we build today are not throwaway scaffolding — they are the format the platform is moving toward.
+
+Where we are focusing right now
+We are re-evaluating the plan while engineering continues, with three questions in mind:
+
+Are we building the right things in the right order? Producers are complete and consumers are at POC. Report Generator and EA Modeling Analyzer are both not started, and they serve very different audiences.
+
+How do we evaluate quality? The Data Quality Analyzer has had manual evaluation only. We need a repeatable way to judge whether generated smells and queries are actually good.
+
+How does this connect to the rest of Ardoq's AI work? Several teams are building agent capabilities. The System Ontology is a shared asset and we would rather it be reused than reinvented.
+
+Glossary
+Term
+
+Meaning
+
+Ontology
+
+A formal, machine-readable description of the classes, relationships and constraints in a domain.
+
+OWL
+
+Web Ontology Language. A W3C standard for expressing ontologies; supports inheritance, cardinality and other constructs Ardoq's metamodel does not currently have.
+
+RDF
+
+Resource Description Framework. The W3C graph data model underlying OWL and GraphLake.
+
+Metamodel
+
+In Ardoq, the definition of component types, reference types and fields that shapes a customer's EA model.
+
+Smell
+
+A pattern in the data suggesting a modeling or data quality problem — borrowed from "code smell". Not necessarily an error, but worth a look.
+
+System Ontology
+
+The consolidated ontology for a given system, built from the Ardoq metamodel and/or its documentation. Input to all downstream analysis.
+
+GraphLake
+
+The RDF database Ardoq's storage layer is migrating to.
+
+Curator / Ontologist
+
+A paired-agent pattern used throughout: the Ontologist proposes, the Curator critiques, and the two iterate to a refined result.
+
+ 

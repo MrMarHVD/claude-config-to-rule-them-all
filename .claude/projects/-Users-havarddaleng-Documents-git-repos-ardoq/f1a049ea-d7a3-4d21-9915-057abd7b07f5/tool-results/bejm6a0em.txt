@@ -1,0 +1,550 @@
+     542 data/dl/foundation-core.dle
+      36 data/dl-inferred/group1.dle
+      42 data/dl-inferred/group2.dle
+      19 data/dl-inferred/group3.dle
+      24 data/dl-inferred/group4.dle
+      29 data/dl-inferred/group5.dle
+       7 data/dl-inferred/group6.dle
+     699 total
+     1	# DLe — Description Logic (Extended)
+     2	# This document uses standard Description Logic (DL) syntax for ontology axioms, with the following extensions:
+     3	#
+     4	# Annotations (lines beginning with @):
+     5	# @label <IRI> "text"  — display name of the resource
+     6	# @doc <IRI> "text"  — description of the resource
+     7	# @db <IRI>  — resource appears explicitly in the database using its own identifier
+     8	# @db <IRI> "identifier"  — resource appears explicitly in the database and is queried using this identifier
+     9	# @storage <IRI> "text"  — describes database storage details
+    10	# @ann <IRI> <annotation-property> "text"  — annotation using the given property
+    11	# @prefix <prefix>: <namespace>  — declares a prefix
+    12	# @import <IRI>  — imports another ontology
+    13	# @ontology <IRI>  — declares the ontology IRI
+    14	#
+    15	# Naming conventions:
+    16	# - Every entity has an implicit label equal to its identifier unless @label is declared
+    17	# - Unprefixed names (e.g., Application) are in the default namespace (:Application)
+    18	# - Prefixed names use declared prefixes (e.g., xsd:string)
+    19	# - Concept/class identifiers conventionally begin with an upper-case letter
+    20	# - Role/reference/field identifiers conventionally begin with a lower-case letter
+    21	#
+    22	# Database convention:
+    23	# - Resources only appear explicitly in the database if they have an @db annotation
+    24	#
+    25	# DLe extensions:
+    26	# ≝  — defines a symbol or predicate; right-hand side is not DL and is not required to be valid OWL
+    27	# ∃r₁,…,rₙ.P  — predicate restriction: P(r₁,…,rₙ) holds over the role values
+    28	
+    29	@import "metaschema.dle"
+    30	
+    31	ApplicationsWorkspace ⊑ Workspace
+    32	BusinessCapabilitiesWorkspace ⊑ Workspace
+    33	OrganizationWorkspace ⊑ Workspace
+    34	PeopleWorkspace ⊑ Workspace
+    35	@label ApplicationsWorkspace "Applications Workspace"
+    36	@label BusinessCapabilitiesWorkspace "Business Capabilities Workspace"
+    37	@label OrganizationWorkspace "Organization Workspace"
+    38	@label PeopleWorkspace "People Workspace"
+    39	@doc ApplicationsWorkspace "Workspace for application portfolio modeling."
+    40	@doc BusinessCapabilitiesWorkspace "Workspace for business capability modeling (capability maps / hierarchies)."
+    41	@doc OrganizationWorkspace "Workspace for modeling organizational structure (organizations and organizational units)."
+    42	@doc PeopleWorkspace "Workspace for modeling people and their roles/responsibilities (supports surveys/notifications)."
+    43	
+    44	Application ⊑ Component
+    45	Application ⊑ ∀rootWorkspace.ApplicationsWorkspace
+    46	@db Application
+    47	
+    48	BusinessCapability ⊑ Component
+    49	BusinessCapability ⊑ ∀rootWorkspace.BusinessCapabilitiesWorkspace
+    50	@label BusinessCapability "Business Capability"
+    51	@doc BusinessCapability "Represents what an organization does; typically modeled as a hierarchical capability map."
+    52	@db BusinessCapability
+    53	
+    54	Organization ⊑ Component
+    55	Organization ⊑ ∀rootWorkspace.OrganizationWorkspace
+    56	
+    57	@doc Organization "Represents an organization or enterprise; may contain organizational units or sub-organizations."
+    58	@db Organization
+    59	
+    60	OrganizationalUnit ⊑ Component
+    61	OrganizationalUnit ⊑ ∀rootWorkspace.OrganizationWorkspace
+    62	@label OrganizationalUnit "Organizational Unit"
+    63	@doc OrganizationalUnit "Subdivision of an organization (e.g., department/team); may be related via hierarchy or belongsTo links."
+    64	@db OrganizationalUnit
+    65	
+    66	Person ⊑ Component
+    67	Person ⊑ ∀rootWorkspace.PeopleWorkspace
+    68	@doc Person "Named individual represented in the model, typically linked to other components via roles or responsibilities."
+    69	@db Person
+    70	
+    71	BelongingEntity ⊑ Component
+    72	BelongingContainer ⊑ Component
+    73	@label BelongingEntity "Belonging Entity"
+    74	@label BelongingContainer "Belonging Container"
+    75	@doc BelongingEntity "An entity eligible to be the source of a belongsTo reference. Foundation identifies Person and OrganizationalUnit as known belonging entities; extending ontologies may declare additional subclasses."
+    76	@doc BelongingContainer "An entity eligible to be the target of a belongsTo reference. Foundation identifies Organization and OrganizationalUnit as known belonging containers; extending ontologies may declare additional subclasses."
+    77	
+    78	Person ⊑ BelongingEntity
+    79	OrganizationalUnit ⊑ BelongingEntity
+    80	Organization ⊑ BelongingContainer
+    81	OrganizationalUnit ⊑ BelongingContainer
+    82	
+    83	belongsTo ⊑ reference
+    84	∃belongsTo.⊤ ⊑ BelongingEntity
+    85	⊤ ⊑ ∀belongsTo.BelongingContainer
+    86	@db belongsTo "Belongs To"
+    87	@label belongsTo "Belongs To"
+    88	@doc belongsTo "Relates a BelongingEntity to a BelongingContainer. In Foundation, a Person belongs to an OrganizationalUnit, while an OrganizationalUnit may belong to an Organization or another OrganizationalUnit. OrganizationalUnit relationships are used for non-hierarchical organizational structures; hierarchical structures use parent."
+    89	
+    90	Person ⊑ ∀belongsTo.OrganizationalUnit
+    91	OrganizationalUnit ⊑ ∀belongsTo.(Organization ⊔ OrganizationalUnit)
+    92	
+    93	ConsumingEntity ⊑ Component
+    94	ConsumableEntity ⊑ Component
+    95	@label ConsumingEntity "Consuming Entity"
+    96	@label ConsumableEntity "Consumable Entity"
+    97	@doc ConsumingEntity "An entity eligible to be the source of a consumes reference. Foundation identifies OrganizationalUnit as a known consuming entity; extending ontologies may declare additional subclasses."
+    98	@doc ConsumableEntity "An entity eligible to be the target of a consumes reference. Foundation identifies Application as a known consumable entity; extending ontologies may declare additional subclasses."
+    99	
+   100	OrganizationalUnit ⊑ ConsumingEntity
+   101	Application ⊑ ConsumableEntity
+   102	
+   103	consumes ⊑ reference
+   104	∃consumes.⊤ ⊑ ConsumingEntity
+   105	⊤ ⊑ ∀consumes.ConsumableEntity
+   106	@db consumes "Consumes"
+   107	@label consumes "Consumes"
+   108	@doc consumes "Relates a ConsumingEntity to a ConsumableEntity that it consumes, may consume, or gains value from."
+   109	
+   110	LifecycleRelatedEntity ⊑ Component
+   111	@label LifecycleRelatedEntity "Lifecycle Related Entity"
+   112	@doc LifecycleRelatedEntity "An entity eligible to participate as either endpoint of a hasLifecycleRelation reference. Foundation identifies Application as a known lifecycle-related entity; extending ontologies may declare additional subclasses."
+   113	
+   114	Application ⊑ LifecycleRelatedEntity
+   115	
+   116	hasLifecycleRelation ⊑ reference
+   117	∃hasLifecycleRelation.⊤ ⊑ LifecycleRelatedEntity
+   118	⊤ ⊑ ∀hasLifecycleRelation.LifecycleRelatedEntity
+   119	@db hasLifecycleRelation "Has Successor"
+   120	@label hasLifecycleRelation "Has Successor"
+   121	@doc hasLifecycleRelation "Time-based dependency, succession, or replacement between lifecycle-related entities. The role name better reflects the relation than the stored label."
+   122	
+   123	hasTimedDependency ⊑ hasLifecycleRelation
+   124	isSucceededBy ⊑ hasLifecycleRelation
+   125	replacedBy ⊑ hasLifecycleRelation
+   126	hasTimedDependency ⊓ isSucceededBy ⊑ ⊥
+   127	hasTimedDependency ⊓ replacedBy ⊑ ⊥
+   128	isSucceededBy ⊓ replacedBy ⊑ ⊥
+   129	@doc hasTimedDependency "Time-based dependency. This is one of the uses of hasLifecycleRelation"
+   130	@doc isSucceededBy "Describes the application to use after this one. This is one of the uses of hasLifecycleRelation"
+   131	@doc replacedBy "Replacement for an application. This is one of the uses of hasLifecycleRelation"
+   132	
+   133	ExpertEntity ⊑ Component
+   134	ExpertiseSubject ⊑ Component
+   135	@label ExpertEntity "Expert Entity"
+   136	@label ExpertiseSubject "Expertise Subject"
+   137	@doc ExpertEntity "An entity eligible to be the source of an isExpertIn reference. Foundation identifies Person as a known expert entity; extending ontologies may declare additional subclasses."
+   138	@doc ExpertiseSubject "An entity eligible to be the target of an isExpertIn reference. Foundation identifies Application and BusinessCapability as known expertise subjects; extending ontologies may declare additional subclasses."
+   139	
+   140	Person ⊑ ExpertEntity
+   141	Application ⊑ ExpertiseSubject
+   142	BusinessCapability ⊑ ExpertiseSubject
+   143	
+   144	isExpertIn ⊑ reference
+   145	∃isExpertIn.⊤ ⊑ ExpertEntity
+   146	⊤ ⊑ ∀isExpertIn.ExpertiseSubject
+   147	@db isExpertIn "Is Expert In"
+   148	@label isExpertIn "Is Expert In"
+   149	@doc isExpertIn "Relates an ExpertEntity to an ExpertiseSubject about which it has expert knowledge; often used to identify survey recipients."
+   150	
+   151	RealizableEntity ⊑ Component
+   152	RealizingEntity ⊑ Component
+   153	@label RealizableEntity "Realizable Entity"
+   154	@label RealizingEntity "Realizing Entity"
+   155	@doc RealizableEntity "An entity eligible to be the source of an isRealizedBy reference. Foundation identifies BusinessCapability as a known realizable entity; extending ontologies may declare additional subclasses."
+   156	@doc RealizingEntity "An entity eligible to be the target of an isRealizedBy reference. Foundation identifies Application and OrganizationalUnit as known realizing entities; extending ontologies may declare additional subclasses."
+   157	
+   158	BusinessCapability ⊑ RealizableEntity
+   159	Application ⊑ RealizingEntity
+   160	OrganizationalUnit ⊑ RealizingEntity
+   161	
+   162	isRealizedBy ⊑ reference
+   163	∃isRealizedBy.⊤ ⊑ RealizableEntity
+   164	⊤ ⊑ ∀isRealizedBy.RealizingEntity
+   165	@db isRealizedBy "Is Realized By"
+   166	@label isRealizedBy "Is Realized By"
+   167	@doc isRealizedBy "Relates a RealizableEntity to a RealizingEntity that directly implements it, in whole or in part."
+   168	
+   169	descendant ∘ isRealizedBy ⊑ isRealizedByDescendent
+   170	@doc isRealizedByDescendent "Relates an entity to a RealizingEntity that directly implements one of its descendants, in whole or in part."
+   171	
+   172	OwningEntity ⊑ Component
+   173	Ownable ⊑ Component
+   174	@label OwningEntity "Owning Entity"
+   175	@doc OwningEntity "An entity eligible to be the source of an owns reference. Foundation identifies Person as a known owning entity; extending ontologies may declare additional subclasses."
+   176	@doc Ownable "An entity eligible to be the target of an owns reference. Foundation identifies Application and OrganizationalUnit as known ownable entities; extending ontologies may declare additional subclasses."
+   177	
+   178	Person ⊑ OwningEntity
+   179	Application ⊑ Ownable
+   180	OrganizationalUnit ⊑ Ownable
+   181	
+   182	owns ⊑ reference
+   183	∃owns.⊤ ⊑ OwningEntity
+   184	⊤ ⊑ ∀owns.Ownable
+   185	@db owns "Owns"
+   186	@label owns "Owns"
+   187	@doc owns "Relates an OwningEntity to an Ownable for which it has overall responsibility."
+   188	
+   189	Organization ⊑ ∀parent.Organization
+   190	OrganizationalUnit ⊑ ∃parent.⊤
+   191	OrganizationalUnit ⊑ ∀parent.(Organization ⊔ OrganizationalUnit)
+   192	BusinessCapability ⊑ ∀parent.BusinessCapability
+   193	
+   194	ReportingEntity ⊑ Component
+   195	ReportRecipient ⊑ Component
+   196	@label ReportingEntity "Reporting Entity"
+   197	@label ReportRecipient "Report Recipient"
+   198	@doc ReportingEntity "An entity eligible to be the source of a reportsTo reference. Foundation identifies Person as a known reporting entity; extending ontologies may declare additional subclasses."
+   199	@doc ReportRecipient "An entity eligible to be the target of a reportsTo reference. Foundation identifies Person as a known report recipient; extending ontologies may declare additional subclasses."
+   200	
+   201	Person ⊑ ReportingEntity
+   202	Person ⊑ ReportRecipient
+   203	
+   204	reportsTo ⊑ reference
+   205	∃reportsTo.⊤ ⊑ ReportingEntity
+   206	⊤ ⊑ ∀reportsTo.ReportRecipient
+   207	@db reportsTo "Reports To"
+   208	@label reportsTo "Reports To"
+   209	@doc reportsTo "Relates a ReportingEntity to the ReportRecipient to which it is accountable or reports."
+   210	
+   211	applicationOwnershipState ⊑ calculatedList
+   212	∃applicationOwnershipState.⊤ ⊑ Application
+   213	⊤ ⊑ ∀applicationOwnershipState.{"Managed","Nominated","Owned","Unowned"}
+   214	≤1 applicationOwnershipState.⊤
+   215	@db applicationOwnershipState "application_ownership_state"
+   216	@label applicationOwnershipState "Application Ownership State"
+   217	@doc applicationOwnershipState "Calculated Ownership lifecycle state: Unowned (no owner), Nominated (pending acceptance), Owned (owner assigned but stale or incomplete data), Managed (current owner with up-to-date strategic data). Calculated hourly using owner presence, ownershipAccepted, strategicRating, and reviewDate freshness (≈7 months)."
+   218	
+   219	Unowned ≡ Application ⊓ ¬∃owns⁻.⊤
+   220	Unowned ≡ ∃applicationOwnershipState.{"Unowned"}
+   221	Nominated ≡ Application ⊓ ∃owns⁻.⊤ ⊓ ∃ownershipAccepted.{"No"}
+   222	Nominated ≡ ∃applicationOwnershipState.{"Nominated"}
+   223	Owned ≡ Application ⊓ ∃owns⁻.⊤ ⊓ ∃ownershipAccepted.{"Yes"} ⊓ ¬∃strategicRating.⊤
+   224	Owned ≡ ∃applicationOwnershipState.{"Owned"}
+   225	Managed ≡ Application ⊓ ∃owns⁻.⊤ ⊓ ∃ownershipAccepted.{"Yes"} ⊓ ∃strategicRating.⊤
+   226	Managed ≡ ∃applicationOwnershipState.{"Managed"}
+   227	
+   228	propertyTIME ⊑ field
+   229	⊤ ⊑ ∀propertyTIME.(xsd:integer ⊔ xsd:decimal ⊔ xsd:string)
+   230	@label propertyTIME "TIME Rating and Dimension Fields"
+   231	@doc propertyTIME "A group of fields encapsulating the Gartner TIME model dimensions (business value, technical fit) used for application portfolio assessment."
+   232	
+   233	applicationType ⊑ field
+   234	∃applicationType.⊤ ⊑ Application
+   235	⊤ ⊑ ∀applicationType.{"COTS","Internally Developed","3rd Party Custom Developed"}
+   236	≤1 applicationType.⊤
+   237	@db applicationType "application_type"
+   238	@label applicationType "Application Type"
+   239	@doc applicationType "Delivery model: Commerical Off The Shelf (COTS), Internally Developed, or 3rd Party Custom Developed."
+   240	
+   241	approved ⊑ field
+   242	∃approved.⊤ ⊑ Application ⊔ BusinessCapability
+   243	⊤ ⊑ ∀approved.xsd:boolean
+   244	≤1 approved.⊤
+   245	@db approved
+   246	@label approved "Approved"
+   247	@doc approved "Review/acknowledgement flag for a component’s accuracy/completeness."
+   248	
+   249	businessStrategicFit ⊑ field
+   250	∃businessStrategicFit.⊤ ⊑ Application
+   251	⊤ ⊑ ∀businessStrategicFit.{"1", "2", "3", "4", "5"}
+   252	≤1 businessStrategicFit.⊤
+   253	@db businessStrategicFit "business_strategic_fit"
+   254	@label businessStrategicFit "Business Strategic Fit"
+   255	@doc businessStrategicFit "Score for how well an application supports business strategy / user ambitions."
+   256	
+   257	functionalFit ⊑ field
+   258	∃functionalFit.⊤ ⊑ Application
+   259	⊤ ⊑ ∀functionalFit.{"1", "2", "3", "4", "5"}
+   260	≤1 functionalFit.⊤
+   261	@db functionalFit "functional_fit"
+   262	@label functionalFit "Functional Fit"
+   263	@doc functionalFit "Functional fit score (meets required functionality), 1..5."
+   264	
+   265	featuresAndUsability ⊑ propertyTIME
+   266	∃featuresAndUsability.⊤ ⊑ Application
+   267	⊤ ⊑ ∀featuresAndUsability.{"1", "2", "3", "4", "5"}
+   268	≤1 featuresAndUsability.⊤
+   269	@db featuresAndUsability "features_and_usability"
+   270	@label featuresAndUsability "Features and Usability"
+   271	@doc featuresAndUsability "Usability score (ease of use / training burden), 1..5."
+   272	
+   273	criticality ⊑ propertyTIME
+   274	∃criticality.⊤ ⊑ Application
+   275	⊤ ⊑ ∀criticality.{"1", "2", "3", "4", "5"}
+   276	≤1 criticality.⊤
+   277	@db criticality
+   278	@label criticality "Criticality"
+   279	@doc criticality "Ordinal business impact score 1..5 (5 = high impact, 1 = negligible)."
+   280	
+   281	∃businessStrategicFitValue.⊤ ⊑ Application
+   282	⊤ ⊑ ∀businessStrategicFitValue.xsd:decimal
+   283	≤1 businessStrategicFitValue.⊤
+   284	@doc businessStrategicFitValue "Numeric equivalent to the businessStrategicFit property"
+   285	∃businessStrategicFitValue.{1} ≡ ∃businessStrategicFit.{"1"}
+   286	∃businessStrategicFitValue.{2} ≡ ∃businessStrategicFit.{"2"}
+   287	∃businessStrategicFitValue.{3} ≡ ∃businessStrategicFit.{"3"}
+   288	∃businessStrategicFitValue.{4} ≡ ∃businessStrategicFit.{"4"}
+   289	∃businessStrategicFitValue.{5} ≡ ∃businessStrategicFit.{"5"}
+   290	
+   291	∃functionalFitValue.⊤ ⊑ Application
+   292	⊤ ⊑ ∀functionalFitValue.xsd:decimal
+   293	≤1 functionalFitValue.⊤
+   294	@doc functionalFitValue "Numeric equivalent to the functionalFit property"
+   295	∃functionalFitValue.{1} ≡ ∃functionalFit.{"1"}
+   296	∃functionalFitValue.{2} ≡ ∃functionalFit.{"2"}
+   297	∃functionalFitValue.{3} ≡ ∃functionalFit.{"3"}
+   298	∃functionalFitValue.{4} ≡ ∃functionalFit.{"4"}
+   299	∃functionalFitValue.{5} ≡ ∃functionalFit.{"5"}
+   300	
+   301	∃featuresAndUsabilityValue.⊤ ⊑ Application
+   302	⊤ ⊑ ∀featuresAndUsabilityValue.xsd:decimal
+   303	≤1 featuresAndUsabilityValue.⊤
+   304	@doc featuresAndUsabilityValue "Numeric equivalent to the featuresAndUsability property"
+   305	∃featuresAndUsabilityValue.{1} ≡ ∃featuresAndUsability.{"1"}
+   306	∃featuresAndUsabilityValue.{2} ≡ ∃featuresAndUsability.{"2"}
+   307	∃featuresAndUsabilityValue.{3} ≡ ∃featuresAndUsability.{"3"}
+   308	∃featuresAndUsabilityValue.{4} ≡ ∃featuresAndUsability.{"4"}
+   309	∃featuresAndUsabilityValue.{5} ≡ ∃featuresAndUsability.{"5"}
+   310	
+   311	∃criticalityValue.⊤ ⊑ Application
+   312	⊤ ⊑ ∀criticalityValue.xsd:decimal
+   313	≤1 criticalityValue.⊤
+   314	@doc criticalityValue "Numeric equivalent to the criticality property"
+   315	∃criticalityValue.{1} ≡ ∃criticality.{"1"}
+   316	∃criticalityValue.{2} ≡ ∃criticality.{"2"}
+   317	∃criticalityValue.{3} ≡ ∃criticality.{"3"}
+   318	∃criticalityValue.{4} ≡ ∃criticality.{"4"}
+   319	∃criticalityValue.{5} ≡ ∃criticality.{"5"}
+   320	
+   321	businessValue ⊑ propertyTIME
+   322	businessValue ⊑ calculatedNumber
+   323	∃businessValue.⊤ ⊑ Application
+   324	⊤ ⊑ ∀businessValue.xsd:decimal
+   325	≤1 businessValue.⊤
+   326	@db businessValue "business_value"
+   327	@label businessValue "Business Value"
+   328	@doc businessValue "Calculated score assessing how well an application supports current and future user needs: businessValue = (businessStrategicFitValue * 0.25) + (functionalFitValue * 0.2) + (featuresAndUsabilityValue * 0.2) + (criticalityValue * 0.35)"
+   329	
+   330	complexity ⊑ calculatedNumber
+   331	⊤ ⊑ ∀complexity.xsd:integer
+   332	∃complexity.⊤ ⊑ BusinessCapability
+   333	≤1 complexity.⊤
+   334	@db complexity
+   335	@label complexity "Complexity"
+   336	@doc complexity "Calculated complexity of a business capability: total number of isRealizedBy references from the capability and all descendant capabilities to Applications or Organizational Units."
+   337	
+   338	componentLevel ⊑ calculatedNumber
+   339	∃componentLevel.⊤ ⊑ BusinessCapability
+   340	≤1 componentLevel.⊤
+   341	@db componentLevel "component_level"
+   342	@label componentLevel "Component Level"
+   343	@doc componentLevel "Calculated depth/level in the capability hierarchy (useful for filtering)."
+   344	
+   345	contactEmail ⊑ field
+   346	∃contactEmail.⊤ ⊑ Person
+   347	⊤ ⊑ ∀contactEmail.xsd:string
+   348	≤1 contactEmail.⊤
+   349	@db contactEmail "contact_email"
+   350	@label contactEmail "Contact Email"
+   351	@doc contactEmail "Email-like identifier (contains '@'); validate externally if needed."
+   352	
+   353	liveStartDate ⊑ field
+   354	∃liveStartDate.⊤ ⊑ Application
+   355	⊤ ⊑ ∀liveStartDate.xsd:dateTime
+   356	≤1 liveStartDate.⊤
+   357	@db liveStartDate "live_start_date"
+   358	@label liveStartDate "Live Start Date"
+   359	@doc liveStartDate "Go-live date."
+   360	
+   361	liveEndDate ⊑ field
+   362	∃liveEndDate.⊤ ⊑ Application
+   363	⊤ ⊑ ∀liveEndDate.xsd:dateTime
+   364	≤1 liveEndDate.⊤
+   365	@db liveEndDate "live_end_date"
+   366	@label liveEndDate "Live End Date"
+   367	@doc liveEndDate "Proposed end-of-life."
+   368	
+   369	hostingType ⊑ field
+   370	∃hostingType.⊤ ⊑ Application
+   371	⊤ ⊑ ∀hostingType.{"3rd. Party","Cloud","Desktop","Hybrid","On Premise","SaaS"}
+   372	≤1 hostingType.⊤
+   373	@db hostingType "hosting_type"
+   374	@label hostingType "Hosting Type"
+   375	
+   376	lifecyclePhase ⊑ field
+   377	∃lifecyclePhase.⊤ ⊑ Application ⊔ BusinessCapability
+   378	⊤ ⊑ ∀lifecyclePhase.{"Implementing","Live","Phasing Out","Retired"}
+   379	≤1 lifecyclePhase.⊤
+   380	@db lifecyclePhase "lifecycle_phase"
+   381	@label lifecyclePhase "Lifecycle Phase"
+   382	
+   383	marketDifferentiation ⊑ field
+   384	∃marketDifferentiation.⊤ ⊑ BusinessCapability
+   385	⊤ ⊑ ∀marketDifferentiation.xsd:decimal[≥1 ⊓ ≤5]
+   386	≤1 marketDifferentiation.⊤
+   387	@db marketDifferentiation "market_differentiation"
+   388	@label marketDifferentiation "Market Differentiation"
+   389	@doc marketDifferentiation "Ordinal score (1..5) of competitive advantage provided by a business capability: from commodity (1) to market-disruptive (5)."
+   390	
+   391	maturity ⊑ field
+   392	∃maturity.⊤ ⊑ BusinessCapability
+   393	⊤ ⊑ ∀maturity.xsd:integer[≥1 ⊓ ≤5]
+   394	≤1 maturity.⊤
+   395	@db maturity
+   396	@label maturity "Maturity"
+   397	@doc maturity "Ordinal maturity score (1..5): Initial, Under Development, Defined, Managed, Measured."
+   398	
+   399	ownershipAccepted ⊑ field
+   400	∃ownershipAccepted.⊤ ⊑ Application
+   401	⊤ ⊑ ∀ownershipAccepted.{"No","Yes"}
+   402	≤1 ownershipAccepted.⊤
+   403	@db ownershipAccepted "ownership_accepted"
+   404	@label ownershipAccepted "Ownership Accepted"
+   405	@doc ownershipAccepted "Whether a nominated owner has accepted responsibility."
+   406	
+   407	reviewDate ⊑ field
+   408	∃reviewDate.⊤ ⊑ Application ⊔ BusinessCapability
+   409	⊤ ⊑ ∀reviewDate.xsd:dateTime
+   410	≤1 reviewDate.⊤
+   411	@db reviewDate "review_date"
+   412	@label reviewDate "Review Date"
+   413	@doc reviewDate "Date a component was reviewed/acknowledged as accurate and complete."
+   414	
+   415	serviceLevel ⊑ field
+   416	∃serviceLevel.⊤ ⊑ Application
+   417	⊤ ⊑ ∀serviceLevel.{"Bronze","Silver","Gold","Platinum"}
+   418	≤1 serviceLevel.⊤
+   419	@db serviceLevel "service_level"
+   420	@label serviceLevel "Service Level"
+   421	@doc serviceLevel "Application importance / fix-on-fail priority (Bronze..Platinum)."
+   422	
+   423	technicalIntegrity ⊑ propertyTIME
+   424	∃technicalIntegrity.⊤ ⊑ Application
+   425	⊤ ⊑ ∀technicalIntegrity.{"1", "2", "3", "4", "5"}
+   426	≤1 technicalIntegrity.⊤
+   427	@db technicalIntegrity "technical_integrity"
+   428	@label technicalIntegrity "Technical Integrity"
+   429	@doc technicalIntegrity "Adherence to technical standards, 1..5."
+   430	
+   431	technicalStrategicFit ⊑ propertyTIME
+   432	∃technicalStrategicFit.⊤ ⊑ Application
+   433	⊤ ⊑ ∀technicalStrategicFit.{"1", "2", "3", "4", "5"}
+   434	≤1 technicalStrategicFit.⊤
+   435	@db technicalStrategicFit "technical_strategic_fit"
+   436	@label technicalStrategicFit "Technical Strategic Fit"
+   437	@doc technicalStrategicFit "Future-proofing / technical strategic alignment score, 1..5."
+   438	
+   439	maintainabilityAndAgility ⊑ propertyTIME
+   440	∃maintainabilityAndAgility.⊤ ⊑ Application
+   441	⊤ ⊑ ∀maintainabilityAndAgility.{"1", "2", "3", "4", "5"}
+   442	≤1 maintainabilityAndAgility.⊤
+   443	@db maintainabilityAndAgility "maintainability_and_agility"
+   444	@label maintainabilityAndAgility "Maintainability and Agility"
+   445	@doc maintainabilityAndAgility "Score for ease of maintenance and adaptability within the technology landscape, 1..5."
+   446	
+   447	∃technicalIntegrityValue.⊤ ⊑ Application
+   448	⊤ ⊑ ∀technicalIntegrityValue.xsd:decimal
+   449	≤1 technicalIntegrityValue.⊤
+   450	@doc technicalIntegrityValue "Numeric equivalent to the technicalIntegrity property"
+   451	∃technicalIntegrityValue.{1} ≡ ∃technicalIntegrity.{"1"}
+   452	∃technicalIntegrityValue.{2} ≡ ∃technicalIntegrity.{"2"}
+   453	∃technicalIntegrityValue.{3} ≡ ∃technicalIntegrity.{"3"}
+   454	∃technicalIntegrityValue.{4} ≡ ∃technicalIntegrity.{"4"}
+   455	∃technicalIntegrityValue.{5} ≡ ∃technicalIntegrity.{"5"}
+   456	
+   457	∃technicalStrategicFitValue.⊤ ⊑ Application
+   458	⊤ ⊑ ∀technicalStrategicFitValue.xsd:decimal
+   459	≤1 technicalStrategicFitValue.⊤
+   460	@doc technicalStrategicFitValue "Numeric equivalent to the technicalStrategicFit property"
+   461	∃technicalStrategicFitValue.{1} ≡ ∃technicalStrategicFit.{"1"}
+   462	∃technicalStrategicFitValue.{2} ≡ ∃technicalStrategicFit.{"2"}
+   463	∃technicalStrategicFitValue.{3} ≡ ∃technicalStrategicFit.{"3"}
+   464	∃technicalStrategicFitValue.{4} ≡ ∃technicalStrategicFit.{"4"}
+   465	∃technicalStrategicFitValue.{5} ≡ ∃technicalStrategicFit.{"5"}
+   466	
+   467	∃maintainabilityAndAgilityValue.⊤ ⊑ Application
+   468	⊤ ⊑ ∀maintainabilityAndAgilityValue.xsd:decimal
+   469	≤1 maintainabilityAndAgilityValue.⊤
+   470	@doc maintainabilityAndAgilityValue "Numeric equivalent to the maintainabilityAndAgility property"
+   471	∃maintainabilityAndAgilityValue.{1} ≡ ∃maintainabilityAndAgility.{"1"}
+   472	∃maintainabilityAndAgilityValue.{2} ≡ ∃maintainabilityAndAgility.{"2"}
+   473	∃maintainabilityAndAgilityValue.{3} ≡ ∃maintainabilityAndAgility.{"3"}
+   474	∃maintainabilityAndAgilityValue.{4} ≡ ∃maintainabilityAndAgility.{"4"}
+   475	∃maintainabilityAndAgilityValue.{5} ≡ ∃maintainabilityAndAgility.{"5"}
+   476	
+   477	technicalFit ⊑ propertyTIME
+   478	technicalFit ⊑ calculatedNumber
+   479	∃technicalFit.⊤ ⊑ Application
+   480	⊤ ⊑ ∀technicalFit.xsd:decimal
+   481	≤1 technicalFit.⊤
+   482	@db technicalFit "technical_fit"
+   483	@label technicalFit "Technical Fit"
+   484	@doc technicalFit "Weighted aggregate (rounded to 2 decimals): techicalFit = (technicalIntegrityValue * 0.43) + (maintainabilityAndAgilityValue * 0.27) + (technicalStrategicFitValue * 0.3)"
+   485	
+   486	strategicRating ⊑ propertyTIME
+   487	strategicRating ⊑ calculatedList
+   488	∃strategicRating.⊤ ⊑ Application
+   489	⊤ ⊑ ∀strategicRating.{"Eliminate","Invest","Migrate","Tolerate"}
+   490	≤1 strategicRating.⊤
+   491	@db strategicRating "strategic_rating"
+   492	@label strategicRating "Strategic Rating"
+   493	@doc strategicRating "Calculated Gartner TIME strategic quadrant category. Note that this value is not a decision and may not be approved"
+   494	
+   495	∃strategicRating.{"Eliminate"} ≡ ∃technicalFit.xsd:decimal[<3] ⊓ ∃businessValue.xsd:decimal[<3]
+   496	∃strategicRating.{"Invest"} ≡ ∃technicalFit.xsd:decimal[≥3] ⊓ ∃businessValue.xsd:decimal[≥3]
+   497	∃strategicRating.{"Migrate"} ≡ ∃technicalFit.xsd:decimal[<3] ⊓ ∃businessValue.xsd:decimal[≥3]
+   498	∃strategicRating.{"Tolerate"} ≡ ∃technicalFit.xsd:decimal[≥3] ⊓ ∃businessValue.xsd:decimal[<3]
+   499	
+   500	# The following extends the model with definitions not saved in the database
+   501	
+   502	# Inverses named for convenience
+   503	consumedBy ≡ consumes⁻
+   504	realizes ≡ isRealizedBy⁻
+   505	ownedBy ≡ owns⁻
+   506	hasExpert ≡ isExpertIn⁻
+   507	
+   508	parent ∘ parent⁻ ⊑ sibling
+   509	# irreflexivity for a composed property is outside of OWL, but siblings must be irreflexive
+   510	Irref(sibling)
+   511	
+   512	
+   513	HighCriticality ≡ ∃criticality.{"4", "5"}
+   514	LowCriticality ≡ ∃criticality.{"1", "2"}
+   515	HighServiceLevel ≡ ∃serviceLevel.{"Gold","Platinum"}
+   516	LowServiceLevel ≡ ∃serviceLevel.{"Bronze","Silver"}
+   517	KeyApplication ≡ Application ⨅ (HighCriticality ⨆ HighServiceLevel)
+   518	
+   519	Implementing ≡ ∃lifecyclePhase.{"Implementing"}
+   520	LivePhase ≡ ∃lifecyclePhase.{"Live"}
+   521	PhasingOut ≡ ∃lifecyclePhase.{"Phasing Out"}
+   522	Retired ≡ ∃lifecyclePhase.{"Retired"}
+   523	
+   524	HasLiveStart ≡ ∃liveStartDate.⊤
+   525	HasLiveEnd ≡ ∃liveEndDate.⊤
+   526	HasLive ≡ (HasLiveStart ⊔ HasLiveEnd)
+   527	
+   528	# The following expressions extend DL using predicates, and extend OWL using DL predicate restrictions
+   529	greaterThan(x,y) ≝ x > y
+   530	afterNow(x) ≝ x > now()
+   531	beforeNow(x) ≝ x < now()
+   532	onOrBeforeNow(x) ≝ x ≤ now()
+   533	enclosesNow(x,y) ≝ x ≤ now() ∧ now() ≤ y
+   534	withinNextYear(x) ≝ now() < x ∧ x < addDuration(now(), P1Y)
+   535	
+   536	LiveStartAfterEnd ≡ ∃liveStartDate,liveEndDate.greaterThan
+   537	LiveStartsInFuture ≡ ∃liveStartDate.afterNow
+   538	LiveEndedInPast ≡ ∃liveEndDate.beforeNow
+   539	LiveNow ≡ ∃liveStartDate,liveEndDate.enclosesNow
+   540	LiveNowOpenEnded ≡ ∃liveStartDate.onOrBeforeNow ⊓ ¬∃liveEndDate.⊤
+   541	LiveEndsSoon ≡ ∃liveEndDate.withinNextYear
+   542	
